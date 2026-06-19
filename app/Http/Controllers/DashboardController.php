@@ -2,18 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
 use App\Services\CashForecastService;
 use App\Services\TreasuryService;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(TreasuryService $treasury, CashForecastService $forecastService): Response
+    public function __invoke(Request $request, TreasuryService $treasury, CashForecastService $forecastService): Response
     {
-        // TODO(auth) : remplacer par auth()->user() une fois l'authentification en place.
-        $user = User::query()->firstOrFail();
+        $user = $request->user();
 
         $snapshot = $treasury->snapshot($user);
         $forecast = $forecastService->forUser($user, 90);

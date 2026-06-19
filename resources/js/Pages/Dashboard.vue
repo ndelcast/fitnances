@@ -1,9 +1,12 @@
 <script setup>
 import { computed } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import Card from 'primevue/card';
 import Tag from 'primevue/tag';
+import Button from 'primevue/button';
 import { formatEuros, formatDate } from '@/lib/format';
+
+const logout = () => router.post('/logout');
 
 const props = defineProps({
     user: { type: Object, required: true },
@@ -28,9 +31,12 @@ const headlinePositive = computed(() => props.headline >= 0);
 
     <main class="min-h-full bg-surface-50 px-4 py-8 md:px-8">
         <div class="mx-auto max-w-5xl">
-            <header class="mb-8">
-                <p class="text-surface-500 text-sm">Bonjour {{ user.name }}</p>
-                <h1 class="text-surface-900 text-2xl font-bold">Votre trésorerie</h1>
+            <header class="mb-8 flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-surface-500 text-sm">Bonjour {{ user.name }}</p>
+                    <h1 class="text-surface-900 text-2xl font-bold">Votre trésorerie</h1>
+                </div>
+                <Button label="Déconnexion" severity="secondary" text size="small" @click="logout" />
             </header>
 
             <!-- Le chiffre unique -->

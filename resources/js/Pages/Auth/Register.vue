@@ -1,10 +1,10 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import Card from 'primevue/card';
 import InputText from 'primevue/inputtext';
 import Password from 'primevue/password';
 import Button from 'primevue/button';
 import Message from 'primevue/message';
+import GuestLayout from '@/Layouts/GuestLayout.vue';
 
 const form = useForm({
     name: '',
@@ -21,45 +21,39 @@ const submit = () => {
 </script>
 
 <template>
-    <Head title="Créer un compte" />
+    <Head title="Crear cuenta" />
 
-    <main class="flex min-h-full items-center justify-center bg-surface-50 px-4 py-12">
-        <Card class="w-full max-w-md">
-            <template #title>Créer votre compte</template>
-            <template #subtitle>14 jours d'essai gratuit, sans carte bancaire.</template>
-            <template #content>
-                <form class="flex flex-col gap-5" @submit.prevent="submit">
-                    <div class="flex flex-col gap-2">
-                        <label for="name" class="text-surface-700 text-sm font-medium">Nom</label>
-                        <InputText id="name" v-model="form.name" autocomplete="name" :invalid="!!form.errors.name" fluid />
-                        <Message v-if="form.errors.name" severity="error" size="small" variant="simple">{{ form.errors.name }}</Message>
-                    </div>
+    <GuestLayout title="Crear cuenta" subtitle="14 días de prueba gratis, sin tarjeta de crédito.">
+        <form class="flex flex-col gap-5" @submit.prevent="submit">
+            <div class="flex flex-col gap-2">
+                <label for="name" class="text-sm font-medium text-surface-700">Nombre</label>
+                <InputText id="name" v-model="form.name" autocomplete="name" :invalid="!!form.errors.name" fluid />
+                <Message v-if="form.errors.name" severity="error" size="small" variant="simple">{{ form.errors.name }}</Message>
+            </div>
 
-                    <div class="flex flex-col gap-2">
-                        <label for="email" class="text-surface-700 text-sm font-medium">Email</label>
-                        <InputText id="email" v-model="form.email" type="email" autocomplete="email" :invalid="!!form.errors.email" fluid />
-                        <Message v-if="form.errors.email" severity="error" size="small" variant="simple">{{ form.errors.email }}</Message>
-                    </div>
+            <div class="flex flex-col gap-2">
+                <label for="email" class="text-sm font-medium text-surface-700">Correo electrónico</label>
+                <InputText id="email" v-model="form.email" type="email" autocomplete="email" :invalid="!!form.errors.email" fluid />
+                <Message v-if="form.errors.email" severity="error" size="small" variant="simple">{{ form.errors.email }}</Message>
+            </div>
 
-                    <div class="flex flex-col gap-2">
-                        <label for="password" class="text-surface-700 text-sm font-medium">Mot de passe</label>
-                        <Password input-id="password" v-model="form.password" autocomplete="new-password" :invalid="!!form.errors.password" toggle-mask fluid />
-                        <Message v-if="form.errors.password" severity="error" size="small" variant="simple">{{ form.errors.password }}</Message>
-                    </div>
+            <div class="flex flex-col gap-2">
+                <label for="password" class="text-sm font-medium text-surface-700">Contraseña</label>
+                <Password input-id="password" v-model="form.password" autocomplete="new-password" :invalid="!!form.errors.password" toggle-mask fluid />
+                <Message v-if="form.errors.password" severity="error" size="small" variant="simple">{{ form.errors.password }}</Message>
+            </div>
 
-                    <div class="flex flex-col gap-2">
-                        <label for="password_confirmation" class="text-surface-700 text-sm font-medium">Confirmer le mot de passe</label>
-                        <Password input-id="password_confirmation" v-model="form.password_confirmation" autocomplete="new-password" :feedback="false" toggle-mask fluid />
-                    </div>
+            <div class="flex flex-col gap-2">
+                <label for="password_confirmation" class="text-sm font-medium text-surface-700">Confirmar contraseña</label>
+                <Password input-id="password_confirmation" v-model="form.password_confirmation" autocomplete="new-password" :feedback="false" toggle-mask fluid />
+            </div>
 
-                    <Button type="submit" label="Créer mon compte" :loading="form.processing" fluid />
+            <Button type="submit" label="Crear mi cuenta" :loading="form.processing" fluid />
 
-                    <p class="text-surface-500 text-center text-sm">
-                        Déjà un compte ?
-                        <Link href="/login" class="font-medium text-emerald-600 hover:underline">Se connecter</Link>
-                    </p>
-                </form>
-            </template>
-        </Card>
-    </main>
+            <p class="text-center text-sm text-surface-500">
+                ¿Ya tienes cuenta?
+                <Link href="/login" class="font-medium text-emerald-600 hover:underline">Iniciar sesión</Link>
+            </p>
+        </form>
+    </GuestLayout>
 </template>

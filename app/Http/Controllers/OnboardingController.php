@@ -44,6 +44,7 @@ class OnboardingController extends Controller
             $profile->update([
                 'cuota_monthly' => (int) round(((float) $data['cuotaMonthly']) * 100),
                 'monthly_salary' => (int) round(((float) $data['monthlySalary']) * 100),
+                'onboarded_at' => now(),
             ]);
 
             $this->defaultCategories->for($user);

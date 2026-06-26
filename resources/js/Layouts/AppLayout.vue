@@ -4,6 +4,8 @@ import { Link, router, usePage } from '@inertiajs/vue3';
 import Avatar from 'primevue/avatar';
 import Menu from 'primevue/menu';
 import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
+import OnboardingWizard from '@/Components/OnboardingWizard.vue';
 
 defineProps({
     title: { type: String, default: '' },
@@ -58,6 +60,15 @@ const userMenuItems = [
 const toggleUserMenu = (event) => userMenu.value.toggle(event);
 
 const mobileOpen = ref(false);
+
+// Onboarding modal : s'auto-ouvre tant que le profil n'a pas été initialisé,
+// sauf sur la page Asistente elle-même (qui a déjà le wizard inline).
+const needsOnboarding = computed(() => page.props.auth?.needsOnboarding === true);
+const onAsistentePage = computed(() => currentPath.value === '/asistente');
+const onboardingOpen = computed({
+    get: () => needsOnboarding.value && !onAsistentePage.value,
+    set: () => {},
+});
 </script>
 
 <template>
@@ -159,5 +170,31 @@ const mobileOpen = ref(false);
                 <slot />
             </main>
         </div>
+
+        <!-- Asistente anual : auto-modal tant que le profil n'a pas été initialisé -->
+        <Dialog
+            :visible="onboardingOpen"
+            modal
+            :closable="false"
+            :closeOnEscape="false"
+            :dismissableMask="false"
+            :draggable="false"
+            :style="{ width: '640px' }"
+            :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }"
+        >
+            <template #header>
+                <div class="flex items-center gap-3">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                        <i class="pi pi-sparkles" />
+                    </span>
+                    <div>
+                        <h2 class="text-base font-semibold text-surface-900">Bienvenido a Fitnances</h2>
+                        <p class="text-xs text-surface-500">Configura tu año en menos de 2 minutos.</p>
+                    </div>
+                </div>
+            </template>
+
+            <OnboardingWizard />
+        </Dialog>
     </div>
 </template>

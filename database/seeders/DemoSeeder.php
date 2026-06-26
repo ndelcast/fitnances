@@ -40,6 +40,7 @@ class DemoSeeder extends Seeder
                 'monthly_salary' => 220000,
                 'surcharge_equivalence' => false,
                 'intra_community' => true,
+                'onboarded_at' => $today,
                 'currency' => 'EUR',
             ],
         );

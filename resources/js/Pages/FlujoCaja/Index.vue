@@ -6,7 +6,6 @@ import Tag from 'primevue/tag';
 import Message from 'primevue/message';
 import Popover from 'primevue/popover';
 import Dialog from 'primevue/dialog';
-import Drawer from 'primevue/drawer';
 import InputNumber from 'primevue/inputnumber';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
@@ -22,6 +21,10 @@ const props = defineProps({
     expenses: { type: Array, required: true },
     salary: { type: Object, required: true },
     quarterlyTaxes: { type: Object, required: true },
+    taxRates: {
+        type: Object,
+        default: () => ({ iva: 21, irpf: 15, modelo130: 20 }),
+    },
     startingBalance: { type: Number, required: true },
     irpfExempt: { type: Boolean, default: false },
     categories: { type: Array, default: () => [] }, // [{id, name, type}]
@@ -50,6 +53,7 @@ const incomesState = reactive(
         id: line.id,
         label: line.clientName || line.label,
         categoryId: line.categoryId,
+        hasIva: line.hasIva ?? true,
         monthly: [...line.monthly],
         paid: [...line.paid],
     })),
@@ -60,6 +64,7 @@ const expensesState = reactive(
         id: line.id,
         label: line.label,
         categoryId: line.categoryId,
+        hasIva: line.hasIva ?? true,
         monthly: [...line.monthly],
         paid: [...line.paid],
     })),
@@ -72,13 +77,60 @@ const salaryState = reactive({
     paid: [...props.salary.paid],
 });
 
-const ivaState = reactive([...props.quarterlyTaxes.iva]);
-const irpfState = reactive([...props.quarterlyTaxes.irpf]);
-
 const isCurrentMonth = (i) => i === todayMonth.value;
 const isPastMonth = (i) => todayMonth.value >= 0 && i < todayMonth.value;
 
+// IVA et IRPF se paient le mois suivant la fin de chaque trimestre :
+// Q1 → Abr, Q2 → Jul, Q3 → Oct. Le Q4 est déclaré en janvier N+1 (hors année).
 const quarterPaymentMonth = [3, 6, 9, null];
+
+// Somme TTC sur une fenêtre de mois, filtrée par "con IVA" si demandé.
+const sumQuarterTtc = (rows, monthsRange, withIvaOnly = true) =>
+    rows.reduce((sum, row) => {
+        if (withIvaOnly && row.hasIva === false) return sum;
+        return sum + monthsRange.reduce((s, m) => s + (row.monthly[m] ?? 0), 0);
+    }, 0);
+
+const extractIva = (ttc, rate) => (rate > 0 ? (ttc * rate) / (1 + rate) : 0);
+
+// IVA dû par trimestre = repercutido (sur ingresos) - soportado (sur gastos).
+const ivaState = computed(() => {
+    const rate = (props.taxRates.iva ?? 0) / 100;
+    return [0, 1, 2, 3].map((q) => {
+        const range = [q * 3, q * 3 + 1, q * 3 + 2];
+        const incomeTtc = sumQuarterTtc(incomesState, range);
+        const expenseTtc = sumQuarterTtc(expensesState, range);
+        const repercutido = extractIva(incomeTtc, rate);
+        const soportado = extractIva(expenseTtc, rate);
+        return Math.max(0, Math.round((repercutido - soportado) * 100) / 100);
+    });
+});
+
+// IRPF (Modelo 130) = 20 % du rendimiento neto HT - retenciones déjà appliquées.
+// Toutes les lignes comptent dans le rendimiento neto (avec ou sans IVA),
+// mais l'extraction HT n'a lieu que pour celles avec IVA.
+const irpfState = computed(() => {
+    const ivaRate = (props.taxRates.iva ?? 0) / 100;
+    const irpfRetentionRate = (props.taxRates.irpf ?? 0) / 100;
+    const modelo130Rate = (props.taxRates.modelo130 ?? 20) / 100;
+
+    return [0, 1, 2, 3].map((q) => {
+        const range = [q * 3, q * 3 + 1, q * 3 + 2];
+        const incomeTtcWithIva = sumQuarterTtc(incomesState, range, true);
+        const incomeTtcNoIva = sumQuarterTtc(incomesState, range, false) - incomeTtcWithIva;
+        const expenseTtcWithIva = sumQuarterTtc(expensesState, range, true);
+        const expenseTtcNoIva = sumQuarterTtc(expensesState, range, false) - expenseTtcWithIva;
+
+        const incomeHt = incomeTtcWithIva - extractIva(incomeTtcWithIva, ivaRate) + incomeTtcNoIva;
+        const expenseHt = expenseTtcWithIva - extractIva(expenseTtcWithIva, ivaRate) + expenseTtcNoIva;
+
+        const netRendimiento = Math.max(0, incomeHt - expenseHt);
+        const base = netRendimiento * modelo130Rate;
+        const retenido = incomeHt * irpfRetentionRate;
+        return Math.max(0, Math.round((base - retenido) * 100) / 100);
+    });
+});
+
 const taxesMonthly = (quarterly) => {
     const arr = new Array(12).fill(0);
     quarterly.forEach((amount, q) => {
@@ -87,8 +139,8 @@ const taxesMonthly = (quarterly) => {
     });
     return arr;
 };
-const ivaMonthly = computed(() => taxesMonthly(ivaState));
-const irpfMonthly = computed(() => taxesMonthly(irpfState));
+const ivaMonthly = computed(() => taxesMonthly(ivaState.value));
+const irpfMonthly = computed(() => taxesMonthly(irpfState.value));
 
 const sumRow = (row) => row.reduce((s, v) => s + (v || 0), 0);
 
@@ -155,6 +207,7 @@ const buildPayload = () => ({
         label: r.label,
         clientName: r.label,
         categoryId: r.categoryId,
+        hasIva: r.hasIva,
         monthly: r.monthly.map((v) => Number(v) || 0),
         paid: r.paid.map((p) => !!p),
     })),
@@ -162,6 +215,7 @@ const buildPayload = () => ({
         id: r.id,
         label: r.label,
         categoryId: r.categoryId,
+        hasIva: r.hasIva,
         monthly: r.monthly.map((v) => Number(v) || 0),
         paid: r.paid.map((p) => !!p),
     })),
@@ -171,10 +225,7 @@ const buildPayload = () => ({
         monthly: salaryState.monthly.map((v) => Number(v) || 0),
         paid: salaryState.paid.map((p) => !!p),
     },
-    quarterlyTaxes: {
-        iva: ivaState.map((v) => Number(v) || 0),
-        irpf: irpfState.map((v) => Number(v) || 0),
-    },
+    // Les trimestres IVA/IRPF sont désormais dérivés du tableau, pas persistés.
 });
 
 const persistNow = () => {
@@ -198,7 +249,7 @@ const scheduleSave = () => {
 };
 
 // Auto-save sur tout changement profond.
-watch([incomesState, expensesState, salaryState, ivaState, irpfState], scheduleSave, { deep: true });
+watch([incomesState, expensesState, salaryState], scheduleSave, { deep: true });
 
 const saveStateLabel = computed(() => {
     if (saving.value) return 'Guardando...';
@@ -331,6 +382,7 @@ function emptyNewRow() {
     return {
         label: '',
         categoryId: null,
+        hasIva: true,
         amount: null,
         mode: 'monthly',
         singleMonth: 0,
@@ -364,6 +416,7 @@ const saveNewRow = () => {
             id: null,
             label: f.label,
             categoryId: f.categoryId,
+            hasIva: f.hasIva,
             monthly,
             paid: new Array(12).fill(false),
         });
@@ -372,6 +425,7 @@ const saveNewRow = () => {
             id: null,
             label: f.label,
             categoryId: f.categoryId,
+            hasIva: f.hasIva,
             monthly,
             paid: new Array(12).fill(false),
         });
@@ -514,9 +568,16 @@ const flash = computed(() => page.props.flash);
                         <!-- INGRESOS -->
                         <tr class="bg-emerald-50/30">
                             <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2" :colspan="14">
-                                <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
                                     <span class="text-xs font-bold uppercase tracking-wider text-emerald-700">Ingresos</span>
-                                    <Button label="Añadir cliente" icon="pi pi-plus" severity="success" text size="small" @click="openNewRow('incomes')" />
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition-all hover:border-emerald-400 hover:bg-emerald-50 hover:shadow"
+                                        @click="openNewRow('incomes')"
+                                    >
+                                        <i class="pi pi-plus text-[10px]" />
+                                        Añadir cliente
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -526,6 +587,11 @@ const flash = computed(() => page.props.flash);
                                     <InputText v-if="isEditingRow('incomes', rowIdx)" ref="rowNameInput" v-model="tempRowName" size="small" @blur="saveRowName" @keydown.enter="saveRowName" @keydown.esc="editingRowName = null" />
                                     <button v-else type="button" class="flex-1 text-left hover:text-emerald-700" @click="startRowNameEdit('incomes', rowIdx)">
                                         {{ line.label }}
+                                        <span
+                                            v-if="!line.hasIva"
+                                            v-tooltip="'Sin IVA — no entra en Modelo 303'"
+                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                        >sin IVA</span>
                                     </button>
                                     <button v-if="!isEditingRow('incomes', rowIdx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'incomes', rowIdx)">
                                         <i class="pi pi-trash text-xs" />
@@ -572,9 +638,16 @@ const flash = computed(() => page.props.flash);
                         <!-- GASTOS -->
                         <tr class="bg-red-50/30">
                             <td class="sticky left-0 z-10 bg-red-50 px-4 py-2" :colspan="14">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs font-bold uppercase tracking-wider text-red-700">Gastos recurrentes</span>
-                                    <Button label="Añadir gasto" icon="pi pi-plus" severity="danger" text size="small" @click="openNewRow('expenses')" />
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs font-bold uppercase tracking-wider text-red-700">Gastos</span>
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 shadow-sm transition-all hover:border-red-400 hover:bg-red-50 hover:shadow"
+                                        @click="openNewRow('expenses')"
+                                    >
+                                        <i class="pi pi-plus text-[10px]" />
+                                        Añadir gasto
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -585,6 +658,11 @@ const flash = computed(() => page.props.flash);
                                     <button v-else type="button" class="flex-1 text-left hover:text-red-700" @click="startRowNameEdit('expenses', rowIdx)">
                                         <span class="font-medium">{{ line.label }}</span>
                                         <span v-if="categoryName(line.categoryId)" class="ml-1 text-xs text-surface-400">· {{ categoryName(line.categoryId) }}</span>
+                                        <span
+                                            v-if="!line.hasIva"
+                                            v-tooltip="'Sin IVA — no entra en Modelo 303'"
+                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                        >sin IVA</span>
                                     </button>
                                     <button v-if="!isEditingRow('expenses', rowIdx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'expenses', rowIdx)">
                                         <i class="pi pi-trash text-xs" />
@@ -718,8 +796,14 @@ const flash = computed(() => page.props.flash);
             </div>
         </Popover>
 
-        <!-- Drawer: nueva fila -->
-        <Drawer v-model:visible="drawerOpen" position="right" class="!w-full md:!w-[420px]">
+        <!-- Modal: nueva fila -->
+        <Dialog
+            v-model:visible="drawerOpen"
+            modal
+            :style="{ width: '460px' }"
+            :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }"
+            :dismissableMask="true"
+        >
             <template #header>
                 <span class="text-lg font-semibold">
                     {{ drawerSection === 'incomes' ? 'Añadir cliente' : 'Añadir gasto' }}
@@ -754,12 +838,24 @@ const flash = computed(() => page.props.flash);
                     <Select v-model="newRowForm.singleMonth" :options="monthOptions" optionLabel="label" optionValue="value" fluid />
                 </div>
 
+                <div class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">Con IVA</p>
+                        <p class="text-xs text-surface-500">
+                            {{ drawerSection === 'incomes'
+                                ? 'Desactivar si facturas sin IVA (ej: cliente UE intracomunitario).'
+                                : 'Desactivar si el proveedor no aplica IVA.' }}
+                        </p>
+                    </div>
+                    <ToggleSwitch v-model="newRowForm.hasIva" />
+                </div>
+
                 <div class="mt-2 flex gap-2">
                     <Button type="button" label="Cancelar" severity="secondary" outlined fluid @click="drawerOpen = false" />
                     <Button type="submit" label="Añadir" fluid />
                 </div>
             </form>
-        </Drawer>
+        </Dialog>
 
         <!-- Modal de suppression de ligne -->
         <Dialog v-model:visible="deleteDialog.visible" modal :showHeader="false" :style="{ width: '440px' }" :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }" :dismissableMask="true">

@@ -16,6 +16,7 @@ class CashFlowRow extends Model
         'client_name',
         'category_id',
         'has_iva',
+        'has_irpf',
         'sort_order',
     ];
 
@@ -24,6 +25,7 @@ class CashFlowRow extends Model
         return [
             'kind' => CashFlowRowKind::class,
             'has_iva' => 'boolean',
+            'has_irpf' => 'boolean',
             'sort_order' => 'integer',
         ];
     }

@@ -79,6 +79,7 @@ class CashFlowController extends Controller
             'incomes.*.clientName' => ['nullable', 'string', 'max:255'],
             'incomes.*.categoryId' => ['nullable', 'integer'],
             'incomes.*.hasIva' => ['nullable', 'boolean'],
+            'incomes.*.hasIrpf' => ['nullable', 'boolean'],
             'incomes.*.monthly' => ['required', 'array', 'size:12'],
             'incomes.*.monthly.*' => ['nullable', 'numeric'],
             'incomes.*.paid' => ['nullable', 'array'],
@@ -123,6 +124,7 @@ class CashFlowController extends Controller
                 'label' => $row->label,
                 'categoryId' => $row->category_id,
                 'hasIva' => (bool) $row->has_iva,
+                'hasIrpf' => (bool) $row->has_irpf,
                 'monthly' => $monthly,
                 'paid' => $paid,
             ];

@@ -135,6 +135,10 @@ final class CashFlowPlanService
             return null;
         }
 
+        if (! $row->has_irpf) {
+            return 0;
+        }
+
         return $profile ? (float) $profile->irpf_default : 15.0;
     }
 
@@ -149,6 +153,9 @@ final class CashFlowPlanService
             'has_iva' => $kind === CashFlowRowKind::Salary
                 ? false
                 : ($row['hasIva'] ?? true),
+            'has_irpf' => $kind === CashFlowRowKind::Income
+                ? ($row['hasIrpf'] ?? true)
+                : false,
             'sort_order' => $sortOrder,
         ]);
 
@@ -175,6 +182,7 @@ final class CashFlowPlanService
                 'kind' => CashFlowRowKind::Salary,
                 'label' => 'Salario',
                 'has_iva' => false,
+                'has_irpf' => false,
                 'sort_order' => 0,
             ]);
             foreach (range(1, 12) as $month) {
@@ -194,6 +202,7 @@ final class CashFlowPlanService
                 'label' => $charge->label,
                 'category_id' => $charge->category_id,
                 'has_iva' => true,
+                'has_irpf' => false,
                 'sort_order' => $sort++,
             ]);
 

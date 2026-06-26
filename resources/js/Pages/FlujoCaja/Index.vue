@@ -54,6 +54,7 @@ const incomesState = reactive(
         label: line.clientName || line.label,
         categoryId: line.categoryId,
         hasIva: line.hasIva ?? true,
+        hasIrpf: line.hasIrpf ?? true,
         monthly: [...line.monthly],
         paid: [...line.paid],
     })),
@@ -107,26 +108,31 @@ const ivaState = computed(() => {
 });
 
 // IRPF (Modelo 130) = 20 % du rendimiento neto HT - retenciones déjà appliquées.
-// Toutes les lignes comptent dans le rendimiento neto (avec ou sans IVA),
-// mais l'extraction HT n'a lieu que pour celles avec IVA.
+// Toutes les lignes comptent dans le rendimiento neto. Les retenciones ne
+// s'appliquent qu'aux ingresos explicitement marqués `Con IRPF retenido`.
+const sumQuarterHtBy = (rows, range, withIva, filterFn = null) =>
+    rows.reduce((sum, row) => {
+        if (filterFn && !filterFn(row)) return sum;
+        const ttcMatchesIvaFilter = withIva === null || row.hasIva === withIva;
+        if (!ttcMatchesIvaFilter) return sum;
+        const ttc = range.reduce((s, m) => s + (row.monthly[m] ?? 0), 0);
+        const ivaRate = (props.taxRates.iva ?? 0) / 100;
+        return sum + (row.hasIva ? ttc - extractIva(ttc, ivaRate) : ttc);
+    }, 0);
+
 const irpfState = computed(() => {
-    const ivaRate = (props.taxRates.iva ?? 0) / 100;
     const irpfRetentionRate = (props.taxRates.irpf ?? 0) / 100;
     const modelo130Rate = (props.taxRates.modelo130 ?? 20) / 100;
 
     return [0, 1, 2, 3].map((q) => {
         const range = [q * 3, q * 3 + 1, q * 3 + 2];
-        const incomeTtcWithIva = sumQuarterTtc(incomesState, range, true);
-        const incomeTtcNoIva = sumQuarterTtc(incomesState, range, false) - incomeTtcWithIva;
-        const expenseTtcWithIva = sumQuarterTtc(expensesState, range, true);
-        const expenseTtcNoIva = sumQuarterTtc(expensesState, range, false) - expenseTtcWithIva;
-
-        const incomeHt = incomeTtcWithIva - extractIva(incomeTtcWithIva, ivaRate) + incomeTtcNoIva;
-        const expenseHt = expenseTtcWithIva - extractIva(expenseTtcWithIva, ivaRate) + expenseTtcNoIva;
+        const incomeHt = sumQuarterHtBy(incomesState, range, null);
+        const expenseHt = sumQuarterHtBy(expensesState, range, null);
+        const incomeHtWithIrpf = sumQuarterHtBy(incomesState, range, null, (r) => r.hasIrpf);
 
         const netRendimiento = Math.max(0, incomeHt - expenseHt);
         const base = netRendimiento * modelo130Rate;
-        const retenido = incomeHt * irpfRetentionRate;
+        const retenido = incomeHtWithIrpf * irpfRetentionRate;
         return Math.max(0, Math.round((base - retenido) * 100) / 100);
     });
 });
@@ -208,6 +214,7 @@ const buildPayload = () => ({
         clientName: r.label,
         categoryId: r.categoryId,
         hasIva: r.hasIva,
+        hasIrpf: r.hasIrpf,
         monthly: r.monthly.map((v) => Number(v) || 0),
         paid: r.paid.map((p) => !!p),
     })),
@@ -383,6 +390,7 @@ function emptyNewRow() {
         label: '',
         categoryId: null,
         hasIva: true,
+        hasIrpf: true,
         amount: null,
         mode: 'monthly',
         singleMonth: 0,
@@ -417,6 +425,7 @@ const saveNewRow = () => {
             label: f.label,
             categoryId: f.categoryId,
             hasIva: f.hasIva,
+            hasIrpf: f.hasIrpf,
             monthly,
             paid: new Array(12).fill(false),
         });
@@ -592,6 +601,11 @@ const flash = computed(() => page.props.flash);
                                             v-tooltip="'Sin IVA — no entra en Modelo 303'"
                                             class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
                                         >sin IVA</span>
+                                        <span
+                                            v-if="!line.hasIrpf"
+                                            v-tooltip="'Sin retención IRPF — no descuenta de Modelo 130'"
+                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                        >sin IRPF</span>
                                     </button>
                                     <button v-if="!isEditingRow('incomes', rowIdx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'incomes', rowIdx)">
                                         <i class="pi pi-trash text-xs" />
@@ -848,6 +862,16 @@ const flash = computed(() => page.props.flash);
                         </p>
                     </div>
                     <ToggleSwitch v-model="newRowForm.hasIva" />
+                </div>
+
+                <div v-if="drawerSection === 'incomes'" class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">Con IRPF retenido</p>
+                        <p class="text-xs text-surface-500">
+                            Desactivar para facturas B2C, UE o exentas (sin retención del 15 %).
+                        </p>
+                    </div>
+                    <ToggleSwitch v-model="newRowForm.hasIrpf" />
                 </div>
 
                 <div class="mt-2 flex gap-2">

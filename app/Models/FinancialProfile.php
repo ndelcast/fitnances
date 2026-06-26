@@ -25,6 +25,7 @@ class FinancialProfile extends Model
         'monthly_salary',
         'surcharge_equivalence',
         'intra_community',
+        'onboarded_at',
         'currency',
     ];
 
@@ -38,6 +39,7 @@ class FinancialProfile extends Model
             'monthly_salary' => 'integer',
             'surcharge_equivalence' => 'boolean',
             'intra_community' => 'boolean',
+            'onboarded_at' => 'datetime',
         ];
     }
 

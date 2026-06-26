@@ -33,6 +33,7 @@ class TransactionController extends Controller
                 'category_name' => $t->category?->name,
                 'occurred_on' => $t->occurred_on->toDateString(),
                 'status' => $t->occurred_on->lte($today) ? 'realizado' : 'previsto',
+                'is_planned' => $t->cash_flow_plan_id !== null,
             ]);
 
         $categories = $user->categories()
@@ -60,6 +61,7 @@ class TransactionController extends Controller
     public function update(TransactionRequest $request, Transaction $transaction): RedirectResponse
     {
         $this->authorizeOwner($request, $transaction);
+        $this->assertNotPlanned($transaction);
 
         $transaction->update($request->attributesForModel());
 
@@ -69,6 +71,7 @@ class TransactionController extends Controller
     public function destroy(Request $request, Transaction $transaction): RedirectResponse
     {
         $this->authorizeOwner($request, $transaction);
+        $this->assertNotPlanned($transaction);
 
         $transaction->delete();
 
@@ -78,10 +81,20 @@ class TransactionController extends Controller
     public function realize(Request $request, Transaction $transaction): RedirectResponse
     {
         $this->authorizeOwner($request, $transaction);
+        $this->assertNotPlanned($transaction);
 
         $transaction->update(['occurred_on' => CarbonImmutable::today()]);
 
         return back()->with('success', 'Marcada como realizada.');
+    }
+
+    private function assertNotPlanned(Transaction $transaction): void
+    {
+        abort_if(
+            $transaction->cash_flow_plan_id !== null,
+            422,
+            'Esta transacción procede del Flujo de caja. Edítala desde allí.',
+        );
     }
 
     private function authorizeOwner(Request $request, Transaction $transaction): void

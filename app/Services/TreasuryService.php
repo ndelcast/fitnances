@@ -25,8 +25,11 @@ final class TreasuryService
 
         $cash = $this->forecast->currentCash($user);
 
-        $income = $user->transactions()->income()->get();
-        $expense = $user->transactions()->expense()->get();
+        // Les provisions sont calculées sur les transactions déjà cobradas/pagadas :
+        // on apparte uniquement l'IVA/IRPF correspondant à ce qui est réellement
+        // entré sur le compte (cohérent avec `cash`).
+        $income = $user->transactions()->income()->whereNotNull('paid_at')->get();
+        $expense = $user->transactions()->expense()->whereNotNull('paid_at')->get();
         $provisions = $this->provisioning->forPeriod($income, $expense, $profile);
 
         $available = $cash - $provisions->total();

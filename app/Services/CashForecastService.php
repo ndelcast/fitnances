@@ -40,12 +40,20 @@ final class CashForecastService
     }
 
     /**
-     * Solde réel : encaissements - charges effectivement passés.
+     * Solde réel : seulement ce qui est effectivement cobrado/pagado
+     * (paid_at non null). Les transactions encore previstas n'entrent pas
+     * dans le cash — elles alimentent le forecast.
      */
     public function currentCash(User $user): int
     {
-        $income = (int) $user->transactions()->where('type', TransactionType::Income)->sum('amount');
-        $expense = (int) $user->transactions()->where('type', TransactionType::Expense)->sum('amount');
+        $income = (int) $user->transactions()
+            ->where('type', TransactionType::Income)
+            ->whereNotNull('paid_at')
+            ->sum('amount');
+        $expense = (int) $user->transactions()
+            ->where('type', TransactionType::Expense)
+            ->whereNotNull('paid_at')
+            ->sum('amount');
 
         return $income - $expense;
     }

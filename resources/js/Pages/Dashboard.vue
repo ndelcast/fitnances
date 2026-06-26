@@ -56,11 +56,11 @@ const deadlineSeverity = (daysLeft) => {
             </Card>
 
             <div class="grid gap-6 lg:grid-cols-3">
-                <!-- Disponible real -->
+                <!-- Disponible estimado -->
                 <Card class="lg:col-span-2">
                     <template #title>
                         <div class="flex items-center justify-between">
-                            <span>Disponible real</span>
+                            <span>Disponible estimado</span>
                             <Tag :value="`Saldo: ${formatEuros(cash)}`" severity="secondary" />
                         </div>
                     </template>

@@ -41,9 +41,9 @@ class TreasuryServiceTest extends TestCase
             'irpf_default' => 0,
         ]);
 
-        // 1210 € TTC encaissés (210 € IVA, 1000 € HT), 500 € de charges.
-        Transaction::factory()->income()->for($user)->create(['amount' => 121000]);
-        Transaction::factory()->expense()->for($user)->create(['amount' => 50000]);
+        // 1210 € TTC encaissés (210 € IVA, 1000 € HT), 500 € de charges, tous payés.
+        Transaction::factory()->income()->for($user)->create(['amount' => 121000, 'paid_at' => now()]);
+        Transaction::factory()->expense()->for($user)->create(['amount' => 50000, 'paid_at' => now()]);
 
         $snapshot = app(TreasuryService::class)->snapshot($user);
 
@@ -64,8 +64,8 @@ class TreasuryServiceTest extends TestCase
         ]);
 
         // Income = expense → rendimiento neto = 0 → Modelo 130 = 0.
-        Transaction::factory()->income()->for($user)->create(['amount' => 200000]); // 2 000 €
-        Transaction::factory()->expense()->for($user)->create(['amount' => 200000]); // 2 000 €
+        Transaction::factory()->income()->for($user)->create(['amount' => 200000, 'paid_at' => now()]);
+        Transaction::factory()->expense()->for($user)->create(['amount' => 200000, 'paid_at' => now()]);
 
         // Charge mensuelle de 800 € due dans 2 jours (donc ce mois-ci).
         RecurringCharge::factory()->for($user)->create([
@@ -85,7 +85,7 @@ class TreasuryServiceTest extends TestCase
     {
         $user = User::factory()->create();
 
-        Transaction::factory()->income()->for($user)->create(['amount' => 100000]); // cash 1000 €
+        Transaction::factory()->income()->for($user)->create(['amount' => 100000, 'paid_at' => now()]); // cash 1000 €
 
         ExpectedIncome::factory()->for($user)->create([
             'amount' => 300000,

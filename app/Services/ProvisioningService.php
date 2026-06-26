@@ -13,8 +13,8 @@ use Illuminate\Support\Collection;
  *
  * Conventions :
  * - les montants des transactions sont TTC (telles qu'elles touchent le compte) ;
- * - le taux d'IVA et le taux d'IRPF appliqués sont ceux par défaut du profil
- *   (Phase 3 ajoutera les taux par transaction).
+ * - chaque transaction porte son propre `iva_rate` et `irpf_rate` ; si null,
+ *   on retombe sur les valeurs par défaut du profil fiscal.
  */
 final class ProvisioningService
 {
@@ -29,8 +29,8 @@ final class ProvisioningService
         Collection $expenseTransactions,
         FinancialProfile $profile,
     ): TaxProvisions {
-        $ivaRate = (float) $profile->iva_default / 100;
-        $irpfRate = (float) $profile->irpf_default / 100;
+        $defaultIvaRate = (float) $profile->iva_default / 100;
+        $defaultIrpfRate = (float) $profile->irpf_default / 100;
 
         $ivaCollected = 0;
         $irpfRetained = 0;
@@ -38,6 +38,9 @@ final class ProvisioningService
 
         foreach ($incomeTransactions as $transaction) {
             $ttc = (int) $transaction->amount;
+            $ivaRate = $this->resolveRate($transaction->iva_rate, $defaultIvaRate);
+            $irpfRate = $this->resolveRate($transaction->irpf_rate, $defaultIrpfRate);
+
             $ivaPart = $this->extractIva($ttc, $ivaRate);
             $ht = $ttc - $ivaPart;
 
@@ -51,6 +54,8 @@ final class ProvisioningService
 
         foreach ($expenseTransactions as $transaction) {
             $ttc = (int) $transaction->amount;
+            $ivaRate = $this->resolveRate($transaction->iva_rate, $defaultIvaRate);
+
             $ivaPart = $this->extractIva($ttc, $ivaRate);
 
             $ivaDeductible += $ivaPart;
@@ -65,6 +70,17 @@ final class ProvisioningService
         $irpfOwed = max(0, $irpfBase - $irpfRetained);
 
         return new TaxProvisions($ivaOwed, $irpfOwed);
+    }
+
+    /**
+     * Retourne le taux à appliquer : celui de la transaction si renseigné
+     * (y compris 0 = sin IVA/IRPF), sinon le défaut du profil.
+     */
+    private function resolveRate($transactionRate, float $defaultRate): float
+    {
+        return $transactionRate !== null
+            ? ((float) $transactionRate) / 100
+            : $defaultRate;
     }
 
     private function extractIva(int $ttc, float $rate): int

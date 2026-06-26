@@ -54,8 +54,8 @@ const incomesState = reactive(
         label: line.clientName || line.label,
         categoryId: line.categoryId,
         hasIva: line.hasIva ?? true,
+        hasIrpf: line.hasIrpf ?? true,
         monthly: [...line.monthly],
-        paid: [...line.paid],
     })),
 );
 
@@ -66,7 +66,6 @@ const expensesState = reactive(
         categoryId: line.categoryId,
         hasIva: line.hasIva ?? true,
         monthly: [...line.monthly],
-        paid: [...line.paid],
     })),
 );
 
@@ -74,11 +73,9 @@ const salaryState = reactive({
     id: props.salary.id,
     label: props.salary.label || 'Salario',
     monthly: [...props.salary.monthly],
-    paid: [...props.salary.paid],
 });
 
 const isCurrentMonth = (i) => i === todayMonth.value;
-const isPastMonth = (i) => todayMonth.value >= 0 && i < todayMonth.value;
 
 // IVA et IRPF se paient le mois suivant la fin de chaque trimestre :
 // Q1 → Abr, Q2 → Jul, Q3 → Oct. Le Q4 est déclaré en janvier N+1 (hors année).
@@ -107,26 +104,31 @@ const ivaState = computed(() => {
 });
 
 // IRPF (Modelo 130) = 20 % du rendimiento neto HT - retenciones déjà appliquées.
-// Toutes les lignes comptent dans le rendimiento neto (avec ou sans IVA),
-// mais l'extraction HT n'a lieu que pour celles avec IVA.
+// Toutes les lignes comptent dans le rendimiento neto. Les retenciones ne
+// s'appliquent qu'aux ingresos explicitement marqués `Con IRPF retenido`.
+const sumQuarterHtBy = (rows, range, withIva, filterFn = null) =>
+    rows.reduce((sum, row) => {
+        if (filterFn && !filterFn(row)) return sum;
+        const ttcMatchesIvaFilter = withIva === null || row.hasIva === withIva;
+        if (!ttcMatchesIvaFilter) return sum;
+        const ttc = range.reduce((s, m) => s + (row.monthly[m] ?? 0), 0);
+        const ivaRate = (props.taxRates.iva ?? 0) / 100;
+        return sum + (row.hasIva ? ttc - extractIva(ttc, ivaRate) : ttc);
+    }, 0);
+
 const irpfState = computed(() => {
-    const ivaRate = (props.taxRates.iva ?? 0) / 100;
     const irpfRetentionRate = (props.taxRates.irpf ?? 0) / 100;
     const modelo130Rate = (props.taxRates.modelo130 ?? 20) / 100;
 
     return [0, 1, 2, 3].map((q) => {
         const range = [q * 3, q * 3 + 1, q * 3 + 2];
-        const incomeTtcWithIva = sumQuarterTtc(incomesState, range, true);
-        const incomeTtcNoIva = sumQuarterTtc(incomesState, range, false) - incomeTtcWithIva;
-        const expenseTtcWithIva = sumQuarterTtc(expensesState, range, true);
-        const expenseTtcNoIva = sumQuarterTtc(expensesState, range, false) - expenseTtcWithIva;
-
-        const incomeHt = incomeTtcWithIva - extractIva(incomeTtcWithIva, ivaRate) + incomeTtcNoIva;
-        const expenseHt = expenseTtcWithIva - extractIva(expenseTtcWithIva, ivaRate) + expenseTtcNoIva;
+        const incomeHt = sumQuarterHtBy(incomesState, range, null);
+        const expenseHt = sumQuarterHtBy(expensesState, range, null);
+        const incomeHtWithIrpf = sumQuarterHtBy(incomesState, range, null, (r) => r.hasIrpf);
 
         const netRendimiento = Math.max(0, incomeHt - expenseHt);
         const base = netRendimiento * modelo130Rate;
-        const retenido = incomeHt * irpfRetentionRate;
+        const retenido = incomeHtWithIrpf * irpfRetentionRate;
         return Math.max(0, Math.round((base - retenido) * 100) / 100);
     });
 });
@@ -142,38 +144,130 @@ const taxesMonthly = (quarterly) => {
 const ivaMonthly = computed(() => taxesMonthly(ivaState.value));
 const irpfMonthly = computed(() => taxesMonthly(irpfState.value));
 
+// IRPF mensuel estimé : on lisse la valeur trimestrielle Modelo 130 sur
+// les 3 mois du trimestre (montant à provisionner chaque mois).
+const irpfMonthlyAccrual = computed(() => {
+    const arr = new Array(12).fill(0);
+    irpfState.value.forEach((quarterAmount, q) => {
+        const monthly = quarterAmount / 3;
+        for (let i = 0; i < 3; i++) {
+            arr[q * 3 + i] = monthly;
+        }
+    });
+    return arr;
+});
+
+/* ---------------------------------------------------------------
+ * Renta annuelle (IRPF réel selon barème progressif)
+ * ---------------------------------------------------------------
+ * Le Modelo 130 est une simple avance à 20 % du rendimiento. La
+ * Renta calcule l'IRPF réel selon les tranches progressives. À la
+ * fin de l'année, on régularise : si Modelo 130 < Renta, on paie
+ * la différence ; sinon Hacienda rembourse.
+ *
+ * Barème 2025 (état + autonomique général, approximation) :
+ *   0 – 12 450    19 %
+ *   12 450 – 20 200    24 %
+ *   20 200 – 35 200    30 %
+ *   35 200 – 60 000    37 %
+ *   60 000 – 300 000   45 %
+ *   > 300 000          47 %
+ *
+ * Base = rendimiento neto annuel - mínimo personal (5 550 €).
+ * (Approximation : on ignore les autres déductions pour le MVP.)
+ */
+const PERSONAL_MINIMUM = 5550;
+const IRPF_BRACKETS = [
+    { upTo: 12450, rate: 0.19 },
+    { upTo: 20200, rate: 0.24 },
+    { upTo: 35200, rate: 0.30 },
+    { upTo: 60000, rate: 0.37 },
+    { upTo: 300000, rate: 0.45 },
+    { upTo: Infinity, rate: 0.47 },
+];
+
+const applyIrpfBrackets = (base) => {
+    if (base <= 0) return 0;
+    let owed = 0;
+    let prev = 0;
+    for (const bracket of IRPF_BRACKETS) {
+        const slice = Math.min(base, bracket.upTo) - prev;
+        if (slice <= 0) break;
+        owed += slice * bracket.rate;
+        prev = bracket.upTo;
+        if (base <= bracket.upTo) break;
+    }
+    return owed;
+};
+
+// Totaux annuels HT (toutes les lignes, tous les mois).
+const annualIncomeHt = computed(() => sumQuarterHtBy(incomesState, [...Array(12).keys()], null));
+const annualExpenseHt = computed(() => sumQuarterHtBy(expensesState, [...Array(12).keys()], null));
+const annualIncomeHtWithIrpf = computed(() =>
+    sumQuarterHtBy(incomesState, [...Array(12).keys()], null, (r) => r.hasIrpf),
+);
+
+const rentaAnnual = computed(() => {
+    const irpfRetentionRate = (props.taxRates.irpf ?? 0) / 100;
+    const baseImponible = Math.max(0, annualIncomeHt.value - annualExpenseHt.value - PERSONAL_MINIMUM);
+    const rentaIrpf = applyIrpfBrackets(baseImponible);
+    const retentionsAnnual = annualIncomeHtWithIrpf.value * irpfRetentionRate;
+    const modelo130Annual = irpfState.value.reduce((s, v) => s + v, 0);
+
+    // Marginal rate approximé sur la dernière tranche atteinte.
+    let marginalRate = 0.19;
+    let cumul = 0;
+    for (const b of IRPF_BRACKETS) {
+        if (baseImponible > cumul) marginalRate = b.rate;
+        cumul = b.upTo;
+        if (baseImponible <= cumul) break;
+    }
+
+    // Restant à provisionner pour la déclaration de renta = Renta réelle
+    // - Modelo 130 déjà avancé - retenciones déjà appliquées par les clients.
+    const restanteRenta = Math.max(0, rentaIrpf - modelo130Annual - retentionsAnnual);
+
+    return {
+        baseImponible,
+        rentaIrpf,
+        marginalRate,
+        modelo130Annual,
+        retentionsAnnual,
+        restanteRenta,
+    };
+});
+
+// Provision cumulative à atteindre à la fin de chaque mois pour la renta :
+// /12 × (mois écoulés). En décembre, on doit avoir la totalité.
+const rentaMonthlyAccrual = computed(() => {
+    const monthly = rentaAnnual.value.restanteRenta / 12;
+    return new Array(12).fill(0).map((_, i) => monthly * (i + 1));
+});
+
 const sumRow = (row) => row.reduce((s, v) => s + (v || 0), 0);
 
 const incomesByMonth = computed(() =>
     months.map((_, i) => incomesState.reduce((s, l) => s + (l.monthly[i] ?? 0), 0)),
 );
-const incomesRealizedByMonth = computed(() =>
-    months.map((_, i) => incomesState.reduce((s, l) => s + (l.paid[i] ? (l.monthly[i] ?? 0) : 0), 0)),
-);
 const expensesByMonth = computed(() =>
     months.map((_, i) => expensesState.reduce((s, l) => s + (l.monthly[i] ?? 0), 0)),
 );
-const expensesPaidByMonth = computed(() =>
-    months.map((_, i) => expensesState.reduce((s, l) => s + (l.paid[i] ? (l.monthly[i] ?? 0) : 0), 0)),
-);
-
-const isVencido = (section, rowIdx, monthIdx) => {
-    if (!isPastMonth(monthIdx)) return false;
-    const row = section === 'incomes' ? incomesState[rowIdx] : expensesState[rowIdx];
-    const amount = row.monthly[monthIdx];
-    if (!amount) return false;
-    return !row.paid[monthIdx];
-};
 
 const taxesByMonth = computed(() => months.map((_, i) => ivaMonthly.value[i] + irpfMonthly.value[i]));
 
+// Projection pure : tous les montants prévus comptent dans le saldo.
+// Le saldo retire aussi 1/12 du complément Renta annuel chaque mois
+// (provision lissée pour la déclaration de mai N+1).
+// Pour suivre la réalité (paid_at), aller dans /movements.
+const rentaMonthlyDelta = computed(() => rentaAnnual.value.restanteRenta / 12);
 const monthlyBalance = computed(() =>
     months.map(
         (_, i) =>
             incomesByMonth.value[i] -
             expensesByMonth.value[i] -
             taxesByMonth.value[i] -
-            (salaryState.monthly[i] ?? 0),
+            (salaryState.monthly[i] ?? 0) -
+            rentaMonthlyDelta.value,
     ),
 );
 
@@ -208,8 +302,8 @@ const buildPayload = () => ({
         clientName: r.label,
         categoryId: r.categoryId,
         hasIva: r.hasIva,
+        hasIrpf: r.hasIrpf,
         monthly: r.monthly.map((v) => Number(v) || 0),
-        paid: r.paid.map((p) => !!p),
     })),
     expenses: expensesState.map((r) => ({
         id: r.id,
@@ -217,15 +311,12 @@ const buildPayload = () => ({
         categoryId: r.categoryId,
         hasIva: r.hasIva,
         monthly: r.monthly.map((v) => Number(v) || 0),
-        paid: r.paid.map((p) => !!p),
     })),
     salary: {
         id: salaryState.id,
         label: salaryState.label,
         monthly: salaryState.monthly.map((v) => Number(v) || 0),
-        paid: salaryState.paid.map((p) => !!p),
     },
-    // Les trimestres IVA/IRPF sont désormais dérivés du tableau, pas persistés.
 });
 
 const persistNow = () => {
@@ -270,15 +361,12 @@ const goToYear = (year) => {
  * --------------------------------------------------------------- */
 const popoverRef = ref();
 const editingCell = ref(null);
-const cellForm = ref({ amount: null, paid: false });
+const cellForm = ref({ amount: null });
 
 const openCellEditor = (event, section, rowIdx, monthIdx) => {
     if (dragState.value) return;
     const row = rowFor(section, rowIdx);
-    cellForm.value = {
-        amount: row.monthly[monthIdx] || null,
-        paid: row.paid[monthIdx] ?? false,
-    };
+    cellForm.value = { amount: row.monthly[monthIdx] || null };
     editingCell.value = { section, rowIdx, monthIdx };
     popoverRef.value.show(event);
 };
@@ -294,7 +382,6 @@ const saveCellEdit = () => {
     const { section, rowIdx, monthIdx } = editingCell.value;
     const row = rowFor(section, rowIdx);
     row.monthly[monthIdx] = cellForm.value.amount || 0;
-    row.paid[monthIdx] = cellForm.value.paid;
     popoverRef.value.hide();
     editingCell.value = null;
 };
@@ -304,7 +391,6 @@ const clearCell = () => {
     const { section, rowIdx, monthIdx } = editingCell.value;
     const row = rowFor(section, rowIdx);
     row.monthly[monthIdx] = 0;
-    row.paid[monthIdx] = false;
     popoverRef.value.hide();
     editingCell.value = null;
 };
@@ -383,6 +469,7 @@ function emptyNewRow() {
         label: '',
         categoryId: null,
         hasIva: true,
+        hasIrpf: true,
         amount: null,
         mode: 'monthly',
         singleMonth: 0,
@@ -417,8 +504,8 @@ const saveNewRow = () => {
             label: f.label,
             categoryId: f.categoryId,
             hasIva: f.hasIva,
+            hasIrpf: f.hasIrpf,
             monthly,
-            paid: new Array(12).fill(false),
         });
     } else {
         expensesState.push({
@@ -427,7 +514,6 @@ const saveNewRow = () => {
             categoryId: f.categoryId,
             hasIva: f.hasIva,
             monthly,
-            paid: new Array(12).fill(false),
         });
     }
     drawerOpen.value = false;
@@ -444,7 +530,6 @@ const deleteDialog = ref({
     sublabel: '',
     total: 0,
     filledMonths: 0,
-    realizedCount: 0,
 });
 
 const confirmDeleteRow = (event, section, rowIdx) => {
@@ -454,7 +539,6 @@ const confirmDeleteRow = (event, section, rowIdx) => {
     const sublabel = section === 'expenses' ? categoryName(row.categoryId) : '';
     const total = row.monthly.reduce((s, v) => s + (v || 0), 0);
     const filledMonths = row.monthly.filter((v) => v > 0).length;
-    const realizedCount = row.monthly.reduce((s, v, i) => s + (v > 0 && row.paid[i] ? 1 : 0), 0);
     deleteDialog.value = {
         visible: true,
         section,
@@ -463,7 +547,6 @@ const confirmDeleteRow = (event, section, rowIdx) => {
         sublabel,
         total,
         filledMonths,
-        realizedCount,
     };
 };
 
@@ -560,14 +643,13 @@ const flash = computed(() => page.props.flash);
                                     {{ m }}
                                 </span>
                             </th>
-                            <th class="min-w-[130px] bg-surface-100 px-3 py-3 text-right font-bold text-surface-700">Total</th>
                         </tr>
                     </thead>
 
                     <tbody>
                         <!-- INGRESOS -->
                         <tr class="bg-emerald-50/30">
-                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2" :colspan="13">
                                 <div class="flex items-center gap-3">
                                     <span class="text-xs font-bold uppercase tracking-wider text-emerald-700">Ingresos</span>
                                     <button
@@ -592,6 +674,11 @@ const flash = computed(() => page.props.flash);
                                             v-tooltip="'Sin IVA — no entra en Modelo 303'"
                                             class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
                                         >sin IVA</span>
+                                        <span
+                                            v-if="!line.hasIrpf"
+                                            v-tooltip="'Sin retención IRPF — no descuenta de Modelo 130'"
+                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                        >sin IRPF</span>
                                     </button>
                                     <button v-if="!isEditingRow('incomes', rowIdx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'incomes', rowIdx)">
                                         <i class="pi pi-trash text-xs" />
@@ -603,41 +690,25 @@ const flash = computed(() => page.props.flash);
                                 :key="monthIdx"
                                 class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-emerald-100/40"
                                 :class="[
-                                    !v && !line.paid[monthIdx] ? 'text-surface-300' : '',
+                                    !v ? 'text-surface-300' : '',
                                     isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-emerald-50/30' : '',
-                                    isVencido('incomes', rowIdx, monthIdx) ? 'bg-red-50/60' : '',
                                     isDragHighlighted('incomes', rowIdx, monthIdx) ? 'bg-emerald-200/50 ring-1 ring-inset ring-emerald-400' : '',
                                 ]"
                                 @click="openCellEditor($event, 'incomes', rowIdx, monthIdx)"
                                 @mouseenter="onCellEnter('incomes', rowIdx, monthIdx)"
                             >
-                                <span class="inline-flex items-center gap-1">
-                                    <i v-if="isVencido('incomes', rowIdx, monthIdx)" v-tooltip="'Vencido sin cobrar'" class="pi pi-exclamation-circle text-[10px] text-red-600" />
-                                    <i v-else-if="line.paid[monthIdx] && v" class="pi pi-check-circle text-[10px] text-emerald-600" />
-                                    <span :class="[isVencido('incomes', rowIdx, monthIdx) ? 'font-medium text-red-700' : '', line.paid[monthIdx] && v ? 'font-semibold text-emerald-700' : '']">
-                                        {{ formatCompact(v) }}
-                                    </span>
-                                </span>
+                                <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
                                 <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-emerald-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'incomes', rowIdx, monthIdx)" @click.stop />
                             </td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">{{ formatCompact(sumRow(line.monthly)) }}</td>
-                        </tr>
-                        <tr class="border-b border-emerald-100">
-                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-                                <i class="pi pi-check-circle mr-1 text-xs" />Cobrado
-                            </td>
-                            <td v-for="(v, i) in incomesRealizedByMonth" :key="i" class="px-2 py-2 text-right tabular-nums text-emerald-700" :class="!v ? 'text-emerald-700/40' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-emerald-50 px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">{{ formatCompact(sumRow(incomesRealizedByMonth)) }}</td>
                         </tr>
                         <tr class="border-b-2 border-emerald-200 bg-emerald-100/40">
                             <td class="sticky left-0 z-10 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Total previsto</td>
                             <td v-for="(v, i) in incomesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-emerald-800">{{ formatCompact(v) }}</td>
-                            <td class="bg-emerald-200/60 px-3 py-2 text-right font-bold tabular-nums text-emerald-900">{{ formatCompact(sumRow(incomesByMonth)) }}</td>
                         </tr>
 
                         <!-- GASTOS -->
                         <tr class="bg-red-50/30">
-                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2" :colspan="13">
                                 <div class="flex items-center gap-3">
                                     <span class="text-xs font-bold uppercase tracking-wider text-red-700">Gastos</span>
                                     <button
@@ -674,41 +745,25 @@ const flash = computed(() => page.props.flash);
                                 :key="monthIdx"
                                 class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-red-100/40"
                                 :class="[
-                                    !v && !line.paid[monthIdx] ? 'text-surface-300' : '',
+                                    !v ? 'text-surface-300' : '',
                                     isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-red-50/30' : '',
-                                    isVencido('expenses', rowIdx, monthIdx) ? 'bg-red-50/60' : '',
                                     isDragHighlighted('expenses', rowIdx, monthIdx) ? 'bg-red-200/50 ring-1 ring-inset ring-red-400' : '',
                                 ]"
                                 @click="openCellEditor($event, 'expenses', rowIdx, monthIdx)"
                                 @mouseenter="onCellEnter('expenses', rowIdx, monthIdx)"
                             >
-                                <span class="inline-flex items-center gap-1">
-                                    <i v-if="isVencido('expenses', rowIdx, monthIdx)" v-tooltip="'Vencido sin pagar'" class="pi pi-exclamation-circle text-[10px] text-red-600" />
-                                    <i v-else-if="line.paid[monthIdx] && v" class="pi pi-check-circle text-[10px] text-red-700" />
-                                    <span :class="[isVencido('expenses', rowIdx, monthIdx) ? 'font-medium text-red-700' : '', line.paid[monthIdx] && v ? 'font-semibold text-red-800' : '']">
-                                        {{ formatCompact(v) }}
-                                    </span>
-                                </span>
+                                <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
                                 <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-red-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'expenses', rowIdx, monthIdx)" @click.stop />
                             </td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-red-700">{{ formatCompact(sumRow(line.monthly)) }}</td>
-                        </tr>
-                        <tr class="border-b border-red-100">
-                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2 text-sm text-red-700">
-                                <i class="pi pi-check-circle mr-1 text-xs" />Pagado
-                            </td>
-                            <td v-for="(v, i) in expensesPaidByMonth" :key="i" class="px-2 py-2 text-right tabular-nums text-red-700" :class="!v ? 'text-red-700/40' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-red-50 px-3 py-2 text-right font-semibold tabular-nums text-red-700">{{ formatCompact(sumRow(expensesPaidByMonth)) }}</td>
                         </tr>
                         <tr class="border-b-2 border-red-200 bg-red-100/40">
                             <td class="sticky left-0 z-10 bg-red-100 px-4 py-2 font-semibold text-red-800">Total previsto</td>
                             <td v-for="(v, i) in expensesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-red-800">{{ formatCompact(v) }}</td>
-                            <td class="bg-red-200/60 px-3 py-2 text-right font-bold tabular-nums text-red-900">{{ formatCompact(sumRow(expensesByMonth)) }}</td>
                         </tr>
 
                         <!-- OBLIGACIONES FISCALES -->
                         <tr class="bg-amber-50/40">
-                            <td class="sticky left-0 z-10 bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-amber-700" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-amber-700" :colspan="13">
                                 Obligaciones fiscales (trimestrales)
                             </td>
                         </tr>
@@ -717,26 +772,72 @@ const flash = computed(() => page.props.flash);
                                 <span class="font-medium">IVA</span>
                                 <Tag value="Modelo 303" severity="secondary" class="ml-2 !text-[10px]" />
                             </td>
-                            <td v-for="(v, i) in ivaMonthly" :key="i" class="px-2 py-2 text-right tabular-nums" :class="!v ? 'text-surface-300' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-amber-700">{{ formatCompact(sumRow(ivaMonthly)) }}</td>
+                            <td
+                                v-for="(v, i) in ivaMonthly"
+                                :key="i"
+                                class="px-2 py-2 text-right tabular-nums"
+                                :class="!v ? 'text-surface-300' : ''"
+                            >
+                                {{ formatCompact(v) }}
+                            </td>
                         </tr>
                         <tr v-if="!irpfExempt" class="border-b border-surface-100">
                             <td class="sticky left-0 z-10 bg-white px-4 py-2 text-surface-800">
                                 <span class="font-medium">IRPF (pago fraccionado)</span>
                                 <Tag value="Modelo 130" severity="secondary" class="ml-2 !text-[10px]" />
                             </td>
-                            <td v-for="(v, i) in irpfMonthly" :key="i" class="px-2 py-2 text-right tabular-nums" :class="!v ? 'text-surface-300' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-amber-700">{{ formatCompact(sumRow(irpfMonthly)) }}</td>
+                            <td
+                                v-for="(v, i) in irpfMonthly"
+                                :key="i"
+                                class="px-2 py-2 text-right tabular-nums"
+                                :class="!v ? 'text-surface-300' : ''"
+                            >
+                                {{ formatCompact(v) }}
+                            </td>
+                        </tr>
+                        <tr v-if="!irpfExempt" class="border-b border-surface-100 bg-amber-50/20">
+                            <td class="sticky left-0 z-10 bg-amber-50/40 px-4 py-1.5 text-xs italic text-amber-700">
+                                <i class="pi pi-info-circle mr-1 text-[10px]" />
+                                IRPF mensual a provisionar
+                                <span class="ml-1 text-[10px] font-normal text-surface-500">(Modelo 130, 1/3 del trimestre)</span>
+                            </td>
+                            <td
+                                v-for="(v, i) in irpfMonthlyAccrual"
+                                :key="i"
+                                class="px-2 py-1.5 text-right text-xs italic tabular-nums text-amber-700"
+                                :class="!v ? 'text-amber-700/40' : ''"
+                            >
+                                {{ formatCompact(v) }}
+                            </td>
+                        </tr>
+                        <tr class="border-b border-surface-100 bg-violet-50/20">
+                            <td
+                                class="sticky left-0 z-10 bg-violet-50/40 px-4 py-1.5 text-xs italic text-violet-700"
+                                v-tooltip.top="`Base imponible ${formatEuros(rentaAnnual.baseImponible)} → IRPF Renta ${formatEuros(rentaAnnual.rentaIrpf)} (tramo marginal ${Math.round(rentaAnnual.marginalRate * 100)} %). Modelo 130 anual cubre ${formatEuros(rentaAnnual.modelo130Annual)} + retenciones ${formatEuros(rentaAnnual.retentionsAnnual)}.`"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-[10px]" />
+                                Renta anual a provisionar
+                                <span class="ml-1 text-[10px] font-normal text-surface-500">
+                                    (IRPF tramo {{ Math.round(rentaAnnual.marginalRate * 100) }} %, acumulado)
+                                </span>
+                            </td>
+                            <td
+                                v-for="(v, i) in rentaMonthlyAccrual"
+                                :key="i"
+                                class="px-2 py-1.5 text-right text-xs italic tabular-nums text-violet-700"
+                                :class="!v ? 'text-violet-700/40' : ''"
+                            >
+                                {{ formatCompact(v) }}
+                            </td>
                         </tr>
                         <tr class="border-b-2 border-amber-200 bg-amber-100/40">
                             <td class="sticky left-0 z-10 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Total fiscal</td>
                             <td v-for="(v, i) in taxesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-amber-800">{{ formatCompact(v) }}</td>
-                            <td class="bg-amber-200/60 px-3 py-2 text-right font-bold tabular-nums text-amber-900">{{ formatCompact(sumRow(taxesByMonth)) }}</td>
                         </tr>
 
                         <!-- SALARIO -->
                         <tr class="bg-violet-50/40">
-                            <td class="sticky left-0 z-10 bg-violet-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-violet-700" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-violet-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-violet-700" :colspan="13">
                                 Pago a mí mismo
                             </td>
                         </tr>
@@ -746,23 +847,42 @@ const flash = computed(() => page.props.flash);
                                 v-for="(v, monthIdx) in salaryState.monthly"
                                 :key="monthIdx"
                                 class="group relative cursor-pointer px-2 py-2 text-right font-semibold tabular-nums text-violet-800 transition-colors hover:bg-violet-100/60"
+                                :class="[
+                                    isDragHighlighted('salary', 0, monthIdx) ? 'bg-violet-200/60 ring-1 ring-inset ring-violet-400' : '',
+                                ]"
                                 @click="openCellEditor($event, 'salary', 0, monthIdx)"
+                                @mouseenter="onCellEnter('salary', 0, monthIdx)"
                             >
                                 {{ formatCompact(v) }}
+                                <span
+                                    v-if="v"
+                                    class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-violet-600 opacity-0 transition-opacity group-hover:opacity-100"
+                                    @mousedown="startDrag($event, 'salary', 0, monthIdx)"
+                                    @click.stop
+                                />
                             </td>
-                            <td class="bg-violet-200/60 px-3 py-2 text-right font-bold tabular-nums text-violet-900">{{ formatCompact(sumRow(salaryState.monthly)) }}</td>
                         </tr>
 
                         <!-- BALANCE -->
                         <tr class="border-b border-surface-200">
-                            <td class="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-surface-700">Saldo del mes</td>
+                            <td
+                                class="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-surface-700"
+                                v-tooltip.right="'Ingresos − gastos − salario − IVA/IRPF trimestral del mes − provisión Renta mensualizada (resto del año en mai N+1).'"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-xs text-surface-400" />
+                                Balance del mes
+                            </td>
                             <td v-for="(v, i) in monthlyBalance" :key="i" class="px-2 py-3 text-right font-semibold tabular-nums" :class="v >= 0 ? 'text-surface-700' : 'text-red-600'">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-100 px-3 py-3 text-right font-bold tabular-nums text-surface-900">{{ formatCompact(sumRow(monthlyBalance)) }}</td>
                         </tr>
                         <tr class="bg-surface-50">
-                            <td class="sticky left-0 z-10 bg-surface-50 px-4 py-3 font-bold text-surface-900">Saldo acumulado</td>
+                            <td
+                                class="sticky left-0 z-10 bg-surface-50 px-4 py-3 font-bold text-surface-900"
+                                v-tooltip.right="'Saldo inicial + suma de los balances mensuales. Lo que te quedaría en la cuenta a final de cada mes, una vez apartado todo lo que debes (impuestos pagados, provisión Renta).'"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-xs text-surface-400" />
+                                Balance acumulado
+                            </td>
                             <td v-for="(v, i) in cumulativeBalance" :key="i" class="px-2 py-3 text-right font-bold tabular-nums" :class="v >= 0 ? 'text-emerald-700' : 'text-red-700'">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-200/80 px-3 py-3 text-right font-bold tabular-nums text-surface-900">{{ formatCompact(cumulativeBalance[11]) }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -780,13 +900,6 @@ const flash = computed(() => page.props.flash);
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-surface-600">Importe (€)</label>
                     <InputNumber v-model="cellForm.amount" :minFractionDigits="0" :maxFractionDigits="2" locale="es-ES" suffix=" €" autofocus fluid @keydown.enter="saveCellEdit" />
-                </div>
-
-                <div v-if="editingCell && editingCell.section !== 'salary'" class="flex items-center justify-between rounded-md px-3 py-2" :class="editingCell.section === 'incomes' ? 'bg-emerald-50' : 'bg-red-50'">
-                    <span class="text-sm font-medium" :class="editingCell.section === 'incomes' ? 'text-emerald-800' : 'text-red-800'">
-                        {{ editingCell.section === 'incomes' ? 'Cobrado' : 'Pagado' }}
-                    </span>
-                    <ToggleSwitch v-model="cellForm.paid" />
                 </div>
 
                 <div class="flex gap-2">
@@ -850,6 +963,16 @@ const flash = computed(() => page.props.flash);
                     <ToggleSwitch v-model="newRowForm.hasIva" />
                 </div>
 
+                <div v-if="drawerSection === 'incomes'" class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">Con IRPF retenido</p>
+                        <p class="text-xs text-surface-500">
+                            Desactivar para facturas B2C, UE o exentas (sin retención del 15 %).
+                        </p>
+                    </div>
+                    <ToggleSwitch v-model="newRowForm.hasIrpf" />
+                </div>
+
                 <div class="mt-2 flex gap-2">
                     <Button type="button" label="Cancelar" severity="secondary" outlined fluid @click="drawerOpen = false" />
                     <Button type="submit" label="Añadir" fluid />
@@ -881,25 +1004,12 @@ const flash = computed(() => page.props.flash);
                         </div>
                         <div>
                             <dt class="text-xs uppercase tracking-wider text-surface-500">Meses con valor</dt>
-                            <dd class="mt-0.5 font-semibold text-surface-900">
-                                {{ deleteDialog.filledMonths }}
-                                <span v-if="deleteDialog.realizedCount > 0" class="ml-1 text-xs font-normal text-emerald-600">
-                                    ({{ deleteDialog.realizedCount }} {{ deleteDialog.section === 'incomes' ? 'cobrado' : 'pagado' }}{{ deleteDialog.realizedCount > 1 ? 's' : '' }})
-                                </span>
-                            </dd>
+                            <dd class="mt-0.5 font-semibold text-surface-900">{{ deleteDialog.filledMonths }}</dd>
                         </div>
                     </dl>
                 </div>
 
-                <div v-if="deleteDialog.realizedCount > 0" class="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    <i class="pi pi-exclamation-triangle mt-0.5" />
-                    <span>
-                        Esta línea contiene movimientos ya {{ deleteDialog.section === 'incomes' ? 'cobrados' : 'pagados' }}.
-                        Si los eliminas, perderás ese histórico.
-                    </span>
-                </div>
-
-                <p v-else class="mt-3 text-xs text-surface-400">Esta acción no se puede deshacer.</p>
+                <p class="mt-3 text-xs text-surface-400">Esta acción no se puede deshacer.</p>
 
                 <div class="mt-5 flex justify-end gap-2">
                     <Button label="Cancelar" severity="secondary" outlined @click="deleteDialog.visible = false" />

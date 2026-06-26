@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\CashForecastService;
+use App\Services\RentaProvisionService;
 use App\Services\TreasuryService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -11,12 +12,18 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function __invoke(Request $request, TreasuryService $treasury, CashForecastService $forecastService): Response
-    {
+    public function __invoke(
+        Request $request,
+        TreasuryService $treasury,
+        CashForecastService $forecastService,
+        RentaProvisionService $rentaService,
+    ): Response {
         $user = $request->user();
+        $today = CarbonImmutable::today();
 
         $snapshot = $treasury->snapshot($user);
         $forecast = $forecastService->forUser($user, 90);
+        $renta = $rentaService->forYear($user, $today->year);
 
         return Inertia::render('Dashboard', [
             'user' => ['name' => $user->name],
@@ -37,6 +44,17 @@ class DashboardController extends Controller
                 'to' => $forecast->to->toDateString(),
             ],
             'upcomingDeadlines' => $this->upcomingDeadlines($user, $snapshot),
+            'renta' => [
+                'year' => $today->year,
+                'rendimientoNeto' => $this->euros($renta->rendimientoNetoAnnual),
+                'baseImponible' => $this->euros($renta->baseImponible),
+                'rentaIrpf' => $this->euros($renta->rentaIrpf),
+                'marginalRate' => round($renta->marginalRate * 100),
+                'modelo130Annual' => $this->euros($renta->modelo130Annual),
+                'retentionsAnnual' => $this->euros($renta->retentionsAnnual),
+                'restanteRenta' => $this->euros($renta->restanteRenta),
+                'monthlyProvision' => $this->euros($renta->monthlyProvision),
+            ],
         ]);
     }
 
@@ -63,18 +81,19 @@ class DashboardController extends Controller
             'amount' => $this->euros($snapshot->provisions->irpf),
         ];
 
-        $cuota = $user->recurringCharges()
-            ->active()
+        $cuota = $user->movements()
+            ->unpaid()
             ->where('label', 'Cuota autónomos')
-            ->orderBy('next_due_on')
+            ->where('estimated_on', '>=', $today->toDateString())
+            ->orderBy('estimated_on')
             ->first();
 
         if ($cuota) {
             $deadlines[] = [
                 'modelo' => 'Cuota autónomos',
                 'label' => 'Domiciliación mensual',
-                'date' => $cuota->next_due_on->toDateString(),
-                'daysLeft' => $today->diffInDays($cuota->next_due_on, false),
+                'date' => $cuota->estimated_on->toDateString(),
+                'daysLeft' => $today->diffInDays($cuota->estimated_on, false),
                 'amount' => $this->euros($cuota->amount),
             ];
         }

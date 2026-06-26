@@ -2,7 +2,7 @@
 
 namespace App\Support;
 
-use App\Enums\TransactionType;
+use App\Enums\MovementKind;
 use App\Models\User;
 
 /**
@@ -37,14 +37,14 @@ final class CreateDefaultCategories
         foreach (self::INCOME as $name) {
             $user->categories()->create([
                 'name' => $name,
-                'type' => TransactionType::Income,
+                'type' => MovementKind::Income,
             ]);
         }
 
         foreach (self::EXPENSE as $name) {
             $user->categories()->create([
                 'name' => $name,
-                'type' => TransactionType::Expense,
+                'type' => MovementKind::Expense,
             ]);
         }
     }

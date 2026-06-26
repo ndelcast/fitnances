@@ -14,6 +14,7 @@ const props = defineProps({
     provisions: { type: Object, required: true },
     forecast: { type: Object, required: true },
     upcomingDeadlines: { type: Array, default: () => [] },
+    renta: { type: Object, default: () => null },
 });
 
 const provisionLines = computed(() => [
@@ -56,11 +57,11 @@ const deadlineSeverity = (daysLeft) => {
             </Card>
 
             <div class="grid gap-6 lg:grid-cols-3">
-                <!-- Disponible real -->
+                <!-- Disponible estimado -->
                 <Card class="lg:col-span-2">
                     <template #title>
                         <div class="flex items-center justify-between">
-                            <span>Disponible real</span>
+                            <span>Disponible estimado</span>
                             <Tag :value="`Saldo: ${formatEuros(cash)}`" severity="secondary" />
                         </div>
                     </template>
@@ -111,6 +112,54 @@ const deadlineSeverity = (daysLeft) => {
                     </template>
                 </Card>
             </div>
+
+            <!-- Renta anual estimada -->
+            <Card v-if="renta">
+                <template #title>
+                    <div class="flex items-center justify-between">
+                        <span>Renta {{ renta.year }} — estimación</span>
+                        <Tag :value="`Tramo marginal ${renta.marginalRate} %`" severity="warn" />
+                    </div>
+                </template>
+                <template #content>
+                    <p class="mb-4 text-sm text-surface-500">
+                        Estimación del IRPF real que tendrás que pagar en la declaración de la renta, según el barème
+                        progresivo (estado + autonómico general). El Modelo 130 ya cubre una parte ; queda lo siguiente
+                        a aprovisionar.
+                    </p>
+
+                    <div class="grid gap-4 md:grid-cols-3">
+                        <div class="rounded-lg border border-violet-200 bg-violet-50 p-4">
+                            <p class="text-xs uppercase tracking-wider text-violet-700">IRPF Renta a pagar</p>
+                            <p class="mt-1 text-2xl font-bold text-violet-700">{{ formatEuros(renta.rentaIrpf) }}</p>
+                            <p class="mt-1 text-xs text-violet-600">
+                                sobre {{ formatEuros(renta.baseImponible) }} de base imponible
+                            </p>
+                        </div>
+                        <div class="rounded-lg bg-surface-50 p-4">
+                            <p class="text-xs uppercase tracking-wider text-surface-500">Ya cubierto</p>
+                            <p class="mt-1 text-xl font-semibold text-surface-900">
+                                {{ formatEuros(renta.modelo130Annual + renta.retentionsAnnual) }}
+                            </p>
+                            <p class="mt-1 text-xs text-surface-500">
+                                {{ formatEuros(renta.modelo130Annual) }} Modelo 130 + {{ formatEuros(renta.retentionsAnnual) }} retenciones
+                            </p>
+                        </div>
+                        <div class="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                            <p class="text-xs uppercase tracking-wider text-amber-700">Falta provisionar</p>
+                            <p class="mt-1 text-2xl font-bold text-amber-700">{{ formatEuros(renta.restanteRenta) }}</p>
+                            <p class="mt-1 text-xs text-amber-700">
+                                ≈ {{ formatEuros(renta.monthlyProvision) }}/mes para llegar a la declaración
+                            </p>
+                        </div>
+                    </div>
+
+                    <p class="mt-4 text-xs italic text-surface-400">
+                        Cálculo aproximado : rendimiento neto de {{ formatEuros(renta.rendimientoNeto) }} − mínimo personal 5 550 €.
+                        Ignora reducciones específicas (familia, discapacidad, etc.) y particularidades autonómicas.
+                    </p>
+                </template>
+            </Card>
 
             <!-- Previsión 90 días -->
             <Card>

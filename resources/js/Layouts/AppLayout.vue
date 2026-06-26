@@ -18,8 +18,7 @@ const user = computed(() => page.props.auth?.user ?? { name: 'Usuario' });
 const nav = [
     { label: 'Resumen', icon: 'pi pi-chart-line', href: '/dashboard', match: ['/dashboard'] },
     { label: 'Flujo de caja', icon: 'pi pi-table', href: '/cash-flow', match: ['/cash-flow'] },
-    { label: 'Transacciones', icon: 'pi pi-arrow-right-arrow-left', href: '/transactions', match: ['/transactions'] },
-    { label: 'Cargos recurrentes', icon: 'pi pi-replay', href: '/recurring-charges', match: ['/recurring-charges'] },
+    { label: 'Movimientos', icon: 'pi pi-arrow-right-arrow-left', href: '/movements', match: ['/movements'] },
     { label: 'Perfil fiscal', icon: 'pi pi-id-card', href: '/fiscal-profile', match: ['/fiscal-profile'] },
 ];
 
@@ -69,6 +68,17 @@ const onboardingOpen = computed({
     get: () => needsOnboarding.value && !onOnboardingPage.value,
     set: () => {},
 });
+
+// Banner email non vérifié (soft block : l'app reste utilisable).
+const emailVerified = computed(() => page.props.auth?.user?.email_verified !== false);
+const resendingVerification = ref(false);
+const resendVerification = () => {
+    resendingVerification.value = true;
+    router.post('/email/verification-notification', {}, {
+        preserveScroll: true,
+        onFinish: () => (resendingVerification.value = false),
+    });
+};
 </script>
 
 <template>
@@ -165,6 +175,24 @@ const onboardingOpen = computed({
                 </button>
                 <Menu ref="userMenu" :model="userMenuItems" :popup="true" />
             </header>
+
+            <div
+                v-if="!emailVerified"
+                class="flex flex-col gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 md:flex-row md:items-center md:justify-between md:px-8"
+            >
+                <span class="flex items-center gap-2">
+                    <i class="pi pi-exclamation-triangle text-amber-600" />
+                    Verifica tu correo electrónico para asegurar tu cuenta.
+                </span>
+                <button
+                    type="button"
+                    class="text-sm font-semibold text-amber-900 underline-offset-2 hover:underline disabled:opacity-50"
+                    :disabled="resendingVerification"
+                    @click="resendVerification"
+                >
+                    {{ resendingVerification ? 'Enviando...' : 'Reenviar el enlace' }}
+                </button>
+            </div>
 
             <main :class="fluid ? '' : 'px-4 py-6 md:px-8 md:py-8'">
                 <slot />

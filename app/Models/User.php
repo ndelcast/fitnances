@@ -2,17 +2,23 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Notifications\WelcomeAndVerifyEmail;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
+
+    public function sendEmailVerificationNotification(): void
+    {
+        $this->notify(new WelcomeAndVerifyEmail);
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -65,19 +71,9 @@ class User extends Authenticatable
         return $this->hasMany(Category::class);
     }
 
-    public function transactions(): HasMany
+    public function movements(): HasMany
     {
-        return $this->hasMany(Transaction::class);
-    }
-
-    public function recurringCharges(): HasMany
-    {
-        return $this->hasMany(RecurringCharge::class);
-    }
-
-    public function expectedIncomes(): HasMany
-    {
-        return $this->hasMany(ExpectedIncome::class);
+        return $this->hasMany(Movement::class);
     }
 
     public function cashFlowPlans(): HasMany

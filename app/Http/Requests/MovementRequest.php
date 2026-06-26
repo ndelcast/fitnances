@@ -2,12 +2,12 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\ChargeFrequency;
+use App\Enums\MovementKind;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 
-class RecurringChargeRequest extends FormRequest
+class MovementRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -17,15 +17,20 @@ class RecurringChargeRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'kind' => ['required', new Enum(MovementKind::class)],
             'label' => ['required', 'string', 'max:255'],
+            'client_name' => ['nullable', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0.01'],
-            'frequency' => ['required', new Enum(ChargeFrequency::class)],
-            'day_of_month' => ['required', 'integer', 'min:1', 'max:31'],
+            'estimated_on' => ['required', 'date'],
             'category_id' => [
                 'nullable', 'integer',
                 Rule::exists('categories', 'id')->where('user_id', $this->user()->id),
             ],
-            'is_active' => ['nullable', 'boolean'],
+            'iva_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'irpf_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'has_iva' => ['nullable', 'boolean'],
+            'has_irpf' => ['nullable', 'boolean'],
+            'paid' => ['nullable', 'boolean'],
         ];
     }
 
@@ -36,7 +41,13 @@ class RecurringChargeRequest extends FormRequest
     {
         $data = $this->validated();
         $data['amount'] = (int) round(((float) $data['amount']) * 100);
-        $data['is_active'] = $data['is_active'] ?? true;
+
+        $paid = $data['paid'] ?? false;
+        unset($data['paid']);
+        $data['paid_at'] = $paid ? now() : null;
+
+        $data['has_iva'] = $data['has_iva'] ?? true;
+        $data['has_irpf'] = $data['has_irpf'] ?? false;
 
         return $data;
     }

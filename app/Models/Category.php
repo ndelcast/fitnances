@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\TransactionType;
+use App\Enums\MovementKind;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,7 +23,7 @@ class Category extends Model
     protected function casts(): array
     {
         return [
-            'type' => TransactionType::class,
+            'type' => MovementKind::class,
         ];
     }
 
@@ -32,13 +32,8 @@ class Category extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function transactions(): HasMany
+    public function movements(): HasMany
     {
-        return $this->hasMany(Transaction::class);
-    }
-
-    public function recurringCharges(): HasMany
-    {
-        return $this->hasMany(RecurringCharge::class);
+        return $this->hasMany(Movement::class);
     }
 }

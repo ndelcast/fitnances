@@ -41,7 +41,10 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $user
-                    ? $user->only('id', 'name', 'email')
+                    ? array_merge(
+                        $user->only('id', 'name', 'email'),
+                        ['email_verified' => $user->hasVerifiedEmail()],
+                    )
                     : null,
                 'needsOnboarding' => fn () => $user
                     ? ($user->financialProfile?->onboarded_at === null)

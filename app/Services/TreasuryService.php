@@ -3,20 +3,19 @@
 namespace App\Services;
 
 use App\DTOs\TreasurySnapshot;
+use App\Enums\MovementKind;
 use App\Models\User;
-use App\Support\RecurringChargeProjector;
 use Carbon\CarbonImmutable;
 
 /**
  * Orchestre les calculs de trésorerie pour produire la photographie
- * d'un autónomo, dont le chiffre unique : « este mes puedes retirar X € ».
+ * d'un autónomo : « este mes puedes retirar X € ».
  */
 final class TreasuryService
 {
     public function __construct(
         private readonly ProvisioningService $provisioning,
         private readonly CashForecastService $forecast,
-        private readonly RecurringChargeProjector $projector,
     ) {}
 
     public function snapshot(User $user): TreasurySnapshot
@@ -25,8 +24,10 @@ final class TreasuryService
 
         $cash = $this->forecast->currentCash($user);
 
-        $income = $user->transactions()->income()->get();
-        $expense = $user->transactions()->expense()->get();
+        // Provisions calculées sur les movements payés uniquement
+        // (on apparte ce qui correspond au cash réellement présent).
+        $income = $user->movements()->paid()->ofKind(MovementKind::Income)->get();
+        $expense = $user->movements()->paid()->ofKind(MovementKind::Expense)->get();
         $provisions = $this->provisioning->forPeriod($income, $expense, $profile);
 
         $available = $cash - $provisions->total();
@@ -41,16 +42,18 @@ final class TreasuryService
     }
 
     /**
-     * Charges récurrentes restant à payer d'ici la fin du mois (en centimes).
+     * Charges récurrentes restantes (expense + salary + tax non payés)
+     * à payer d'ici la fin du mois.
      */
     private function remainingChargesThisMonth(User $user): int
     {
         $from = CarbonImmutable::today();
         $to = $from->endOfMonth();
 
-        return (int) $user->recurringCharges()
-            ->active()
-            ->get()
-            ->sum(fn ($charge) => $this->projector->totalBetween($charge, $from, $to));
+        return (int) $user->movements()
+            ->unpaid()
+            ->ofKind(MovementKind::Expense, MovementKind::Salary, MovementKind::Tax)
+            ->inWindow($from, $to)
+            ->sum('amount');
     }
 }

@@ -2,14 +2,14 @@
 
 namespace Database\Seeders;
 
-use App\Enums\ChargeFrequency;
+use App\Enums\CashFlowRowKind;
 use App\Enums\FiscalRegime;
-use App\Models\ExpectedIncome;
+use App\Enums\MovementKind;
+use App\Enums\MovementSource;
+use App\Models\CashFlowRow;
 use App\Models\FinancialProfile;
-use App\Models\RecurringCharge;
-use App\Models\Transaction;
+use App\Models\Movement;
 use App\Models\User;
-use App\Services\CashFlowPlanService;
 use App\Support\CreateDefaultCategories;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -23,7 +23,11 @@ class DemoSeeder extends Seeder
 
         $user = User::firstOrCreate(
             ['email' => 'demo@fitnances.app'],
-            ['name' => 'Nicolas del Castillo', 'password' => Hash::make('password')],
+            [
+                'name' => 'Nicolas del Castillo',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+            ],
         );
 
         FinancialProfile::updateOrCreate(
@@ -50,80 +54,134 @@ class DemoSeeder extends Seeder
         $servicios = $user->categories()->where('name', 'Servicios profesionales')->firstOrFail();
         $software = $user->categories()->where('name', 'Software / suscripciones')->firstOrFail();
         $alquiler = $user->categories()->where('name', 'Alquiler oficina')->firstOrFail();
-        $cuota = $user->categories()->where('name', 'Cuota autónomos')->firstOrFail();
+        $cuotaCat = $user->categories()->where('name', 'Cuota autónomos')->firstOrFail();
 
-        // Encaissements des 3 derniers mois (3 200 € TTC).
-        foreach ([0, 1, 2] as $monthsAgo) {
-            Transaction::factory()->income()->for($user)->create([
-                'category_id' => $servicios->id,
-                'amount' => 320000,
-                'iva_rate' => 21,
-                'irpf_rate' => 15,
-                'label' => 'Factura Acme S.L.',
-                'occurred_on' => $today->subMonthsNoOverflow($monthsAgo)->subDays(3),
-            ]);
-        }
+        // Plan de l'année courante.
+        $plan = $user->cashFlowPlans()->firstOrCreate(
+            ['year' => $today->year],
+            ['starting_balance' => 0, 'irpf_exempt' => false],
+        );
 
-        // Factura prevista à 30 jours (income futur).
-        Transaction::factory()->income()->for($user)->create([
+        // Ingresos récurrents : Acme S.L. 3 200 €/mois.
+        $this->createRecurringRow(
+            $plan, CashFlowRowKind::Income, 'Factura Acme S.L.',
+            categoryId: $servicios->id,
+            clientName: 'Acme S.L.',
+            amountCents: 320000,
+            hasIva: true,
+            hasIrpf: true,
+            paidMonths: range(1, $today->month - 1), // les mois passés sont cobrados
+        );
+
+        // Gastos récurrents.
+        $this->createRecurringRow(
+            $plan, CashFlowRowKind::Expense, 'Alquiler oficina',
+            categoryId: $alquiler->id,
+            amountCents: 65000,
+            hasIva: true,
+            paidMonths: range(1, $today->month - 1),
+        );
+        $this->createRecurringRow(
+            $plan, CashFlowRowKind::Expense, 'Cuota autónomos',
+            categoryId: $cuotaCat->id,
+            amountCents: 46900,
+            hasIva: false,
+            paidMonths: range(1, $today->month - 1),
+        );
+        $this->createRecurringRow(
+            $plan, CashFlowRowKind::Expense, 'Adobe Creative Cloud',
+            categoryId: $software->id,
+            amountCents: 6049,
+            hasIva: true,
+            paidMonths: range(1, $today->month - 1),
+        );
+
+        // Salario 2 200 €/mois.
+        $this->createRecurringRow(
+            $plan, CashFlowRowKind::Salary, 'Salario',
+            amountCents: 220000,
+            paidMonths: range(1, $today->month - 1),
+        );
+
+        // Quelques movements ponctuels (sans row).
+        Movement::create([
+            'user_id' => $user->id,
+            'kind' => MovementKind::Income,
             'category_id' => $servicios->id,
-            'amount' => 180000,
-            'iva_rate' => 21,
-            'irpf_rate' => 15,
             'label' => 'Factura Globex Corp.',
-            'occurred_on' => $today->addDays(20),
-        ]);
-
-        // Charge ponctuelle passée.
-        Transaction::factory()->expense()->for($user)->create([
-            'category_id' => $software->id,
-            'amount' => 6049,
-            'iva_rate' => 21,
-            'label' => 'Adobe Creative Cloud',
-            'occurred_on' => $today->subDays(7),
-        ]);
-
-        // Charges récurrentes.
-        RecurringCharge::factory()->for($user)->create([
-            'category_id' => $alquiler->id,
-            'label' => 'Alquiler oficina',
-            'amount' => 65000,
-            'frequency' => ChargeFrequency::Monthly,
-            'day_of_month' => 1,
-            'next_due_on' => $today->addDays(4),
-        ]);
-        RecurringCharge::factory()->for($user)->create([
-            'category_id' => $cuota->id,
-            'label' => 'Cuota autónomos',
-            'amount' => 46900,
-            'frequency' => ChargeFrequency::Monthly,
-            'day_of_month' => 30,
-            'next_due_on' => $today->addDays(5),
-        ]);
-        RecurringCharge::factory()->for($user)->create([
-            'category_id' => $software->id,
-            'label' => 'Adobe Creative Cloud',
-            'amount' => 6049,
-            'frequency' => ChargeFrequency::Monthly,
-            'day_of_month' => 15,
-            'next_due_on' => $today->addDays(15),
-        ]);
-
-        // Facturas previstas (próximos 90 días).
-        ExpectedIncome::factory()->for($user)->create([
-            'label' => 'Factura 2026-014',
             'client_name' => 'Globex Corp.',
             'amount' => 180000,
-            'expected_on' => $today->addDays(25),
-        ]);
-        ExpectedIncome::factory()->for($user)->create([
-            'label' => 'Factura 2026-015',
-            'client_name' => 'Stark Industries',
-            'amount' => 420000,
-            'expected_on' => $today->addDays(55),
+            'estimated_on' => $today->addDays(20)->toDateString(),
+            'paid_at' => null,
+            'has_iva' => true,
+            'has_irpf' => true,
+            'source' => MovementSource::Manual,
         ]);
 
-        // Plan de tesorería pour l'année en cours (peuplé via le service).
-        app(CashFlowPlanService::class)->forYear($user->fresh(), $today->year);
+        Movement::create([
+            'user_id' => $user->id,
+            'kind' => MovementKind::Income,
+            'category_id' => $servicios->id,
+            'label' => 'Factura Stark Industries',
+            'client_name' => 'Stark Industries',
+            'amount' => 420000,
+            'estimated_on' => $today->addDays(55)->toDateString(),
+            'paid_at' => null,
+            'has_iva' => true,
+            'has_irpf' => true,
+            'source' => MovementSource::Manual,
+        ]);
+    }
+
+    /**
+     * Crée une row + 12 movements (un par mois), avec paid_at sur les mois passés.
+     *
+     * @param  array<int>  $paidMonths  1-based month numbers to mark paid
+     */
+    private function createRecurringRow(
+        \App\Models\CashFlowPlan $plan,
+        CashFlowRowKind $rowKind,
+        string $label,
+        int $amountCents,
+        ?int $categoryId = null,
+        ?string $clientName = null,
+        bool $hasIva = true,
+        bool $hasIrpf = false,
+        array $paidMonths = [],
+    ): void {
+        $row = CashFlowRow::create([
+            'plan_id' => $plan->id,
+            'kind' => $rowKind,
+            'label' => $label,
+            'client_name' => $clientName,
+            'category_id' => $categoryId,
+            'has_iva' => $rowKind === CashFlowRowKind::Salary ? false : $hasIva,
+            'has_irpf' => $rowKind === CashFlowRowKind::Income ? $hasIrpf : false,
+            'sort_order' => 0,
+        ]);
+
+        $movementKind = match ($rowKind) {
+            CashFlowRowKind::Income => MovementKind::Income,
+            CashFlowRowKind::Expense => MovementKind::Expense,
+            CashFlowRowKind::Salary => MovementKind::Salary,
+        };
+
+        foreach (range(1, 12) as $month) {
+            Movement::create([
+                'user_id' => $plan->user_id,
+                'cash_flow_plan_id' => $plan->id,
+                'cash_flow_row_id' => $row->id,
+                'category_id' => $categoryId,
+                'kind' => $movementKind,
+                'label' => $label,
+                'client_name' => $clientName,
+                'amount' => $amountCents,
+                'estimated_on' => CarbonImmutable::create($plan->year, $month, 15)->toDateString(),
+                'paid_at' => in_array($month, $paidMonths, true) ? now() : null,
+                'has_iva' => $row->has_iva,
+                'has_irpf' => $row->has_irpf,
+                'source' => MovementSource::Recurring,
+            ]);
+        }
     }
 }

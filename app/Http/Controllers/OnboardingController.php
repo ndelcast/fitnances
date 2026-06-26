@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\ChargeFrequency;
+use App\Enums\CashFlowRowKind;
+use App\Enums\MovementKind;
+use App\Enums\MovementSource;
 use App\Http\Requests\OnboardingRequest;
-use App\Models\RecurringCharge;
+use App\Models\CashFlowRow;
+use App\Models\Movement;
 use App\Support\CreateDefaultCategories;
-use App\Support\NextDueDateCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,7 +19,6 @@ use Inertia\Response;
 class OnboardingController extends Controller
 {
     public function __construct(
-        private readonly NextDueDateCalculator $nextDue,
         private readonly CreateDefaultCategories $defaultCategories,
     ) {}
 
@@ -49,34 +50,53 @@ class OnboardingController extends Controller
 
             $this->defaultCategories->for($user);
 
+            $cuotaAmount = (int) round(((float) $data['cuotaMonthly']) * 100);
+            $year = CarbonImmutable::today()->year;
+            $plan = $user->cashFlowPlans()->firstOrCreate(
+                ['year' => $year],
+                ['starting_balance' => 0, 'irpf_exempt' => false],
+            );
+
+            // Crée (ou met à jour) la row Cuota autónomos avec 12 movements.
             $cuotaCategory = $user->categories()
                 ->where('name', 'Cuota autónomos')
-                ->where('type', 'expense')
+                ->where('type', MovementKind::Expense->value)
                 ->first();
 
-            $existingCuota = $user->recurringCharges()
+            $row = $plan->rows()
+                ->where('kind', CashFlowRowKind::Expense->value)
                 ->where('label', 'Cuota autónomos')
                 ->first();
 
-            $cuotaAmount = (int) round(((float) $data['cuotaMonthly']) * 100);
-            $nextDue = $this->nextDue->compute(ChargeFrequency::Monthly, 30, CarbonImmutable::today());
-
-            if ($existingCuota) {
-                $existingCuota->update([
-                    'amount' => $cuotaAmount,
-                    'next_due_on' => $nextDue,
-                    'is_active' => true,
-                ]);
+            if ($row) {
+                $row->update(['category_id' => $cuotaCategory?->id]);
+                $row->movements()->delete();
             } else {
-                RecurringCharge::create([
-                    'user_id' => $user->id,
+                $row = CashFlowRow::create([
+                    'plan_id' => $plan->id,
+                    'kind' => CashFlowRowKind::Expense,
+                    'label' => 'Cuota autónomos',
                     'category_id' => $cuotaCategory?->id,
+                    'has_iva' => false,
+                    'has_irpf' => false,
+                    'sort_order' => 0,
+                ]);
+            }
+
+            foreach (range(1, 12) as $month) {
+                Movement::create([
+                    'user_id' => $user->id,
+                    'cash_flow_plan_id' => $plan->id,
+                    'cash_flow_row_id' => $row->id,
+                    'category_id' => $cuotaCategory?->id,
+                    'kind' => MovementKind::Expense,
                     'label' => 'Cuota autónomos',
                     'amount' => $cuotaAmount,
-                    'frequency' => ChargeFrequency::Monthly,
-                    'day_of_month' => 30,
-                    'next_due_on' => $nextDue,
-                    'is_active' => true,
+                    'estimated_on' => CarbonImmutable::create($year, $month, 30)->toDateString(),
+                    'paid_at' => null,
+                    'has_iva' => false,
+                    'has_irpf' => false,
+                    'source' => MovementSource::Recurring,
                 ]);
             }
         });

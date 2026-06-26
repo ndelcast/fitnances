@@ -93,6 +93,9 @@ final class CashFlowPlanService
             'label' => $row['label'] ?? ($kind === CashFlowRowKind::Salary ? 'Salario' : 'Sin nombre'),
             'client_name' => $row['clientName'] ?? null,
             'category_id' => $row['categoryId'] ?? null,
+            'has_iva' => $kind === CashFlowRowKind::Salary
+                ? false
+                : ($row['hasIva'] ?? true),
             'sort_order' => $sortOrder,
         ]);
 
@@ -118,6 +121,7 @@ final class CashFlowPlanService
                 'plan_id' => $plan->id,
                 'kind' => CashFlowRowKind::Salary,
                 'label' => 'Salario',
+                'has_iva' => false,
                 'sort_order' => 0,
             ]);
             foreach (range(1, 12) as $month) {
@@ -137,6 +141,7 @@ final class CashFlowPlanService
                 'kind' => CashFlowRowKind::Expense,
                 'label' => $charge->label,
                 'category_id' => $charge->category_id,
+                'has_iva' => true,
                 'sort_order' => $sort++,
             ]);
 

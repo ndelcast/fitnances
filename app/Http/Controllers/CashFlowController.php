@@ -23,6 +23,7 @@ class CashFlowController extends Controller
 
         $plan = $this->service->forYear($user, $year);
         $plan->load(['rows.cells', 'quarterlyTaxes']);
+        $profile = $user->financialProfile;
 
         $rowsByKind = $plan->rows->groupBy(fn (CashFlowRow $row) => $row->kind->value);
 
@@ -55,6 +56,11 @@ class CashFlowController extends Controller
                 'iva' => $this->mapTaxes($plan, QuarterlyTaxKind::Iva),
                 'irpf' => $this->mapTaxes($plan, QuarterlyTaxKind::Irpf),
             ],
+            'taxRates' => [
+                'iva' => $profile ? (float) $profile->iva_default : 21,
+                'irpf' => $profile ? (float) $profile->irpf_default : 15,
+                'modelo130' => 20,
+            ],
             'categories' => $categories,
             'years' => $years,
         ]);
@@ -72,12 +78,14 @@ class CashFlowController extends Controller
             'incomes.*.label' => ['required', 'string', 'max:255'],
             'incomes.*.clientName' => ['nullable', 'string', 'max:255'],
             'incomes.*.categoryId' => ['nullable', 'integer'],
+            'incomes.*.hasIva' => ['nullable', 'boolean'],
             'incomes.*.monthly' => ['required', 'array', 'size:12'],
             'incomes.*.monthly.*' => ['nullable', 'numeric'],
             'incomes.*.paid' => ['nullable', 'array'],
             'expenses' => ['nullable', 'array'],
             'expenses.*.label' => ['required', 'string', 'max:255'],
             'expenses.*.categoryId' => ['nullable', 'integer'],
+            'expenses.*.hasIva' => ['nullable', 'boolean'],
             'expenses.*.monthly' => ['required', 'array', 'size:12'],
             'expenses.*.monthly.*' => ['nullable', 'numeric'],
             'expenses.*.paid' => ['nullable', 'array'],
@@ -114,6 +122,7 @@ class CashFlowController extends Controller
                 'id' => $row->id,
                 'label' => $row->label,
                 'categoryId' => $row->category_id,
+                'hasIva' => (bool) $row->has_iva,
                 'monthly' => $monthly,
                 'paid' => $paid,
             ];

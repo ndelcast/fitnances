@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\CreateDefaultCategories;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -37,8 +38,11 @@ class RegisteredUserController extends Controller
                 'trial_ends_at' => now()->addDays(14),
             ]);
 
-            // Profil fiscal par défaut (réglages ajustables ensuite).
+            // Perfil fiscal par défaut (réglages ajustables ensuite).
             $user->financialProfile()->create([]);
+
+            // Catégories par défaut pour démarrer.
+            app(CreateDefaultCategories::class)->for($user);
 
             return $user;
         });

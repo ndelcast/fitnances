@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\CategoryController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -41,8 +42,11 @@ $categories = [
 Route::middleware('auth')->group(function () use ($categories) {
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
+    Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
+
     Route::get('/dashboard', function () {
         $today = now();
+
         return Inertia::render('Dashboard', [
             'headline' => 2840.50,
             'cash' => 9420.10,

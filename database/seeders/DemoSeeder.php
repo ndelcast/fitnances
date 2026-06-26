@@ -4,12 +4,12 @@ namespace Database\Seeders;
 
 use App\Enums\ChargeFrequency;
 use App\Enums\FiscalRegime;
-use App\Models\Category;
 use App\Models\ExpectedIncome;
 use App\Models\FinancialProfile;
 use App\Models\RecurringCharge;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\CreateDefaultCategories;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -35,16 +35,19 @@ class DemoSeeder extends Seeder
                 'regime' => FiscalRegime::DirectSimplified,
                 'iva_default' => 21,
                 'irpf_default' => 15,
-                'cuota_monthly' => 46900, // 469 €
+                'cuota_monthly' => 46900,
                 'surcharge_equivalence' => false,
                 'intra_community' => true,
                 'currency' => 'EUR',
             ],
         );
 
-        $servicios = Category::factory()->income()->for($user)->create(['name' => 'Servicios profesionales']);
-        $software = Category::factory()->expense()->for($user)->create(['name' => 'Software / suscripciones']);
-        $alquiler = Category::factory()->expense()->for($user)->create(['name' => 'Alquiler oficina']);
+        app(CreateDefaultCategories::class)->for($user);
+
+        $servicios = $user->categories()->where('name', 'Servicios profesionales')->firstOrFail();
+        $software = $user->categories()->where('name', 'Software / suscripciones')->firstOrFail();
+        $alquiler = $user->categories()->where('name', 'Alquiler oficina')->firstOrFail();
+        $cuota = $user->categories()->where('name', 'Cuota autónomos')->firstOrFail();
 
         // Encaissements des 3 derniers mois (3 200 € TTC).
         foreach ([0, 1, 2] as $monthsAgo) {
@@ -56,7 +59,7 @@ class DemoSeeder extends Seeder
             ]);
         }
 
-        // Charges ponctuelles passées.
+        // Charge ponctuelle passée.
         Transaction::factory()->expense()->for($user)->create([
             'category_id' => $software->id,
             'amount' => 6049,
@@ -73,6 +76,7 @@ class DemoSeeder extends Seeder
             'next_due_on' => $today->addDays(4),
         ]);
         RecurringCharge::factory()->for($user)->create([
+            'category_id' => $cuota->id,
             'label' => 'Cuota autónomos',
             'amount' => 46900,
             'frequency' => ChargeFrequency::Monthly,

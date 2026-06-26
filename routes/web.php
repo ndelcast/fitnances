@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\FinancialProfileController;
 use App\Http\Controllers\OnboardingController;
@@ -43,7 +44,7 @@ $categories = [
     'Telefonía e internet',
 ];
 
-Route::middleware('auth')->group(function () use ($categories) {
+Route::middleware('auth')->group(function () {
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
     Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
@@ -65,6 +66,10 @@ Route::middleware('auth')->group(function () use ($categories) {
 
     Route::get('/asistente', [OnboardingController::class, 'show'])->name('asistente.index');
     Route::post('/asistente', [OnboardingController::class, 'store'])->name('asistente.store');
+
+    Route::get('/flujo-caja', [CashFlowController::class, 'index'])->name('flujo-caja.index');
+    Route::put('/flujo-caja/{year}', [CashFlowController::class, 'update'])
+        ->whereNumber('year')->name('flujo-caja.update');
 
     Route::get('/dashboard', function () {
         $today = now();
@@ -111,37 +116,5 @@ Route::middleware('auth')->group(function () use ($categories) {
             ],
         ]);
     })->name('dashboard');
-
-    Route::get('/flujo-caja', function () use ($categories) {
-        return Inertia::render('FlujoCaja/Index', [
-            'year' => 2026,
-            'startingBalance' => 4200.00,
-            'categories' => $categories,
-            'incomes' => [
-                ['client' => 'Acme S.L.', 'monthly' => [3200, 0, 3200, 0, 3200, 0, 3200, 0, 3200, 0, 3200, 0]],
-                ['client' => 'Globex Corp.', 'monthly' => [0, 1800, 0, 1800, 0, 1800, 0, 1800, 0, 1800, 0, 1800]],
-                ['client' => 'InitTech', 'monthly' => [950, 950, 950, 950, 950, 950, 950, 950, 950, 950, 950, 950]],
-                ['client' => 'Stark Industries', 'monthly' => [0, 0, 0, 4200, 0, 0, 0, 4200, 0, 0, 0, 4200]],
-                ['client' => 'Berlin GmbH (UE)', 'monthly' => [0, 2500, 0, 0, 2500, 0, 0, 2500, 0, 0, 2500, 0]],
-            ],
-            'expenses' => [
-                ['name' => 'Alquiler oficina', 'category' => 'Alquiler', 'monthly' => array_fill(0, 12, 650)],
-                ['name' => 'Cuota autónomos', 'category' => 'Cuota', 'monthly' => array_fill(0, 12, 469)],
-                ['name' => 'Adobe Creative Cloud', 'category' => 'Software', 'monthly' => array_fill(0, 12, 60.49)],
-                ['name' => 'Fibra + móvil', 'category' => 'Telco', 'monthly' => array_fill(0, 12, 55)],
-                ['name' => 'Gestoría', 'category' => 'Honorarios', 'monthly' => [165, 0, 0, 165, 0, 0, 165, 0, 0, 165, 0, 0]],
-                ['name' => 'Seguro RC', 'category' => 'Seguros', 'monthly' => [285, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
-            ],
-            'salary' => [
-                'amount' => 2200,
-                'monthly' => array_fill(0, 12, 2200),
-            ],
-            'quarterlyTaxes' => [
-                'iva' => [1850, 1620, 2100, 1980], // payés en Avr, Jul, Oct (Janv N+1 ignoré)
-                'irpf' => [980, 720, 1150, 1020],
-                'irpfExempt' => false,
-            ],
-        ]);
-    })->name('flujo-caja.index');
 
 });

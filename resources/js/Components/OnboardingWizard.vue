@@ -87,7 +87,15 @@ const finish = () => {
             cuotaMonthly: data.value.cuotaMonthly,
             monthlySalary: data.value.monthlySalary,
         },
-        { onFinish: () => (finishing.value = false) },
+        {
+            // 419 = session/CSRF expirée : on recharge plutôt que de laisser l'utilisateur bloqué.
+            onError: (errors) => {
+                if (errors?._token || errors?.csrf) {
+                    window.location.reload();
+                }
+            },
+            onFinish: () => (finishing.value = false),
+        },
     );
 };
 

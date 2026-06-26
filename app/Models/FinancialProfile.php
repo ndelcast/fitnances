@@ -22,6 +22,7 @@ class FinancialProfile extends Model
         'iva_default',
         'irpf_default',
         'cuota_monthly',
+        'monthly_salary',
         'surcharge_equivalence',
         'intra_community',
         'currency',
@@ -34,6 +35,7 @@ class FinancialProfile extends Model
             'iva_default' => 'decimal:2',
             'irpf_default' => 'decimal:2',
             'cuota_monthly' => 'integer',
+            'monthly_salary' => 'integer',
             'surcharge_equivalence' => 'boolean',
             'intra_community' => 'boolean',
         ];

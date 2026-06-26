@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\FinancialProfileController;
+use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\RecurringChargeController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
@@ -61,6 +62,9 @@ Route::middleware('auth')->group(function () use ($categories) {
 
     Route::get('/perfil-fiscal', [FinancialProfileController::class, 'edit'])->name('perfil-fiscal.edit');
     Route::put('/perfil-fiscal', [FinancialProfileController::class, 'update'])->name('perfil-fiscal.update');
+
+    Route::get('/asistente', [OnboardingController::class, 'show'])->name('asistente.index');
+    Route::post('/asistente', [OnboardingController::class, 'store'])->name('asistente.store');
 
     Route::get('/dashboard', function () {
         $today = now();
@@ -140,13 +144,4 @@ Route::middleware('auth')->group(function () use ($categories) {
         ]);
     })->name('flujo-caja.index');
 
-    Route::get('/asistente', function () {
-        return Inertia::render('Asistente/Index', [
-            'initial' => [
-                'annualRevenue' => null,
-                'cuotaMonthly' => null,
-                'monthlySalary' => null,
-            ],
-        ]);
-    })->name('asistente.index');
 });

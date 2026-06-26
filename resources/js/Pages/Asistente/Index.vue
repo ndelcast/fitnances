@@ -84,9 +84,22 @@ const next = () => {
 
 const back = () => currentStep.value--;
 
+const finishing = ref(false);
 const finish = () => {
-    // Proto : juste rediriger vers Flujo de caja
-    router.visit('/flujo-caja');
+    finishing.value = true;
+    router.post(
+        '/asistente',
+        {
+            annualRevenue: data.value.annualRevenue,
+            cuotaMonthly: data.value.cuotaMonthly,
+            monthlySalary: data.value.monthlySalary,
+        },
+        {
+            onFinish: () => {
+                finishing.value = false;
+            },
+        },
+    );
 };
 
 const monthlySalaryTotal = computed(() => (data.value.monthlySalary ?? 0) * 12);
@@ -296,6 +309,7 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
                     label="Generar flujo de caja"
                     icon="pi pi-check"
                     severity="success"
+                    :loading="finishing"
                     @click="finish"
                 />
             </div>

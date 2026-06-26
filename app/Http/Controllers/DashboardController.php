@@ -23,10 +23,9 @@ class DashboardController extends Controller
             'cash' => $this->euros($snapshot->cash),
             'available' => $this->euros($snapshot->available),
             'provisions' => [
+                'iva' => $this->euros($snapshot->provisions->iva),
+                'irpf' => $this->euros($snapshot->provisions->irpf),
                 'total' => $this->euros($snapshot->provisions->total()),
-                'vat' => $this->euros($snapshot->provisions->vat),
-                'urssaf' => $this->euros($snapshot->provisions->urssaf),
-                'incomeTax' => $this->euros($snapshot->provisions->incomeTax),
             ],
             'forecast' => [
                 'startingCash' => $this->euros($forecast->startingCash),

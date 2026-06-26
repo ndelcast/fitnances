@@ -27,10 +27,12 @@ class DashboardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('Dashboard')
-                ->where('user.name', 'Camille Martin')
+                ->where('auth.user.name', 'Nicolas del Castillo')
                 ->has('headline')
                 ->has('available')
                 ->has('cash')
+                ->has('provisions.iva')
+                ->has('provisions.irpf')
                 ->has('provisions.total')
                 ->has('forecast.projectedBalance')
             );

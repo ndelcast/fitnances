@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\FiscalRegime;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -14,19 +15,25 @@ class FinancialProfileFactory extends Factory
     {
         return [
             'user_id' => User::factory(),
-            'urssaf_rate' => 22.00,
-            'collects_vat' => false,
-            'vat_rate' => null,
-            'income_tax_rate' => 0,
+            'full_name' => $this->faker->name(),
+            'nif' => strtoupper($this->faker->bothify('########?')),
+            'activity' => 'Desarrollo de software',
+            'province' => 'Barcelona',
+            'regime' => FiscalRegime::DirectSimplified,
+            'iva_default' => 21,
+            'irpf_default' => 15,
+            'cuota_monthly' => 29400, // 294,00 € (tarifa plana indicative)
+            'surcharge_equivalence' => false,
+            'intra_community' => false,
             'currency' => 'EUR',
         ];
     }
 
-    public function withVat(float $rate = 20.0): static
+    public function newAutonomo(): static
     {
         return $this->state(fn () => [
-            'collects_vat' => true,
-            'vat_rate' => $rate,
+            'irpf_default' => 7,
+            'cuota_monthly' => 8000, // 80,00 € tarifa plana nuevos autónomos
         ]);
     }
 }

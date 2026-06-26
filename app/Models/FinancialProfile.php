@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\FiscalRegime;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,20 +14,28 @@ class FinancialProfile extends Model
 
     protected $fillable = [
         'user_id',
-        'urssaf_rate',
-        'collects_vat',
-        'vat_rate',
-        'income_tax_rate',
+        'full_name',
+        'nif',
+        'activity',
+        'province',
+        'regime',
+        'iva_default',
+        'irpf_default',
+        'cuota_monthly',
+        'surcharge_equivalence',
+        'intra_community',
         'currency',
     ];
 
     protected function casts(): array
     {
         return [
-            'urssaf_rate' => 'decimal:2',
-            'collects_vat' => 'boolean',
-            'vat_rate' => 'decimal:2',
-            'income_tax_rate' => 'decimal:2',
+            'regime' => FiscalRegime::class,
+            'iva_default' => 'decimal:2',
+            'irpf_default' => 'decimal:2',
+            'cuota_monthly' => 'integer',
+            'surcharge_equivalence' => 'boolean',
+            'intra_community' => 'boolean',
         ];
     }
 

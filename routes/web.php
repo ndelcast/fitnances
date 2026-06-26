@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinancialProfileController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\RecurringChargeController;
@@ -25,27 +26,10 @@ Route::middleware('guest')->group(function () {
     Route::post('login', [AuthenticatedSessionController::class, 'store']);
 });
 
-/*
-|--------------------------------------------------------------------------
-| Prototype routes — fake data, no business logic
-|--------------------------------------------------------------------------
-*/
-
-$categories = [
-    'Servicios profesionales',
-    'Material de oficina',
-    'Software / suscripciones',
-    'Alquiler oficina',
-    'Cuota autónomos',
-    'Suministros',
-    'Formación',
-    'Comidas y viajes',
-    'Honorarios profesionales',
-    'Telefonía e internet',
-];
-
 Route::middleware('auth')->group(function () {
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+    Route::get('/dashboard', DashboardController::class)->name('dashboard');
 
     Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
 
@@ -70,51 +54,4 @@ Route::middleware('auth')->group(function () {
     Route::get('/flujo-caja', [CashFlowController::class, 'index'])->name('flujo-caja.index');
     Route::put('/flujo-caja/{year}', [CashFlowController::class, 'update'])
         ->whereNumber('year')->name('flujo-caja.update');
-
-    Route::get('/dashboard', function () {
-        $today = now();
-
-        return Inertia::render('Dashboard', [
-            'headline' => 2840.50,
-            'cash' => 9420.10,
-            'available' => 6120.40,
-            'provisions' => [
-                'iva' => 1850.20,
-                'irpf' => 980.50,
-                'total' => 2830.70,
-            ],
-            'forecast' => [
-                'startingCash' => 9420.10,
-                'expectedIncome' => 8400.00,
-                'projectedCharges' => 5320.40,
-                'projectedBalance' => 12499.70,
-                'from' => $today->toDateString(),
-                'to' => $today->copy()->addDays(90)->toDateString(),
-            ],
-            'upcomingDeadlines' => [
-                [
-                    'modelo' => 'Modelo 303',
-                    'label' => 'IVA trimestral',
-                    'date' => $today->copy()->addDays(12)->toDateString(),
-                    'daysLeft' => 12,
-                    'amount' => 1850.20,
-                ],
-                [
-                    'modelo' => 'Modelo 130',
-                    'label' => 'Pago fraccionado IRPF',
-                    'date' => $today->copy()->addDays(12)->toDateString(),
-                    'daysLeft' => 12,
-                    'amount' => 980.50,
-                ],
-                [
-                    'modelo' => 'Cuota autónomos',
-                    'label' => 'Domiciliación mensual',
-                    'date' => $today->copy()->addDays(5)->toDateString(),
-                    'daysLeft' => 5,
-                    'amount' => 469.00,
-                ],
-            ],
-        ]);
-    })->name('dashboard');
-
 });

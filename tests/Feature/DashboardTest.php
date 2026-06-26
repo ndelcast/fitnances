@@ -35,6 +35,9 @@ class DashboardTest extends TestCase
                 ->has('provisions.irpf')
                 ->has('provisions.total')
                 ->has('forecast.projectedBalance')
+                ->has('upcomingDeadlines.0.modelo')
+                ->has('upcomingDeadlines.0.amount')
+                ->has('upcomingDeadlines.0.daysLeft')
             );
     }
 }

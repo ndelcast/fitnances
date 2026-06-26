@@ -55,6 +55,8 @@ class CashFlowController extends Controller
             'quarterlyTaxes' => [
                 'iva' => $this->mapTaxes($plan, QuarterlyTaxKind::Iva),
                 'irpf' => $this->mapTaxes($plan, QuarterlyTaxKind::Irpf),
+                'ivaPaid' => $this->mapTaxPaid($plan, QuarterlyTaxKind::Iva),
+                'irpfPaid' => $this->mapTaxPaid($plan, QuarterlyTaxKind::Irpf),
             ],
             'taxRates' => [
                 'iva' => $profile ? (float) $profile->iva_default : 21,
@@ -96,10 +98,10 @@ class CashFlowController extends Controller
             'salary.monthly.*' => ['nullable', 'numeric'],
             'salary.paid' => ['nullable', 'array'],
             'quarterlyTaxes' => ['nullable', 'array'],
-            'quarterlyTaxes.iva' => ['nullable', 'array', 'size:4'],
-            'quarterlyTaxes.iva.*' => ['nullable', 'numeric'],
-            'quarterlyTaxes.irpf' => ['nullable', 'array', 'size:4'],
-            'quarterlyTaxes.irpf.*' => ['nullable', 'numeric'],
+            'quarterlyTaxes.ivaPaid' => ['nullable', 'array', 'size:4'],
+            'quarterlyTaxes.ivaPaid.*' => ['nullable', 'boolean'],
+            'quarterlyTaxes.irpfPaid' => ['nullable', 'array', 'size:4'],
+            'quarterlyTaxes.irpfPaid.*' => ['nullable', 'boolean'],
         ]);
 
         $this->service->save($plan, $payload);
@@ -172,6 +174,18 @@ class CashFlowController extends Controller
 
         return array_map(
             fn (int $q) => isset($taxes[$q]) ? $taxes[$q]->amount / 100 : 0,
+            [1, 2, 3, 4],
+        );
+    }
+
+    private function mapTaxPaid(CashFlowPlan $plan, QuarterlyTaxKind $kind): array
+    {
+        $taxes = $plan->quarterlyTaxes
+            ->where('kind', $kind)
+            ->keyBy('quarter');
+
+        return array_map(
+            fn (int $q) => isset($taxes[$q]) && $taxes[$q]->paid_at !== null,
             [1, 2, 3, 4],
         );
     }

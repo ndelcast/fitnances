@@ -105,8 +105,8 @@ class CashFlowControllerTest extends TestCase
                 'paid' => array_fill(0, 12, false),
             ],
             'quarterlyTaxes' => [
-                'iva' => [1500, 1600, 1700, 1800],
-                'irpf' => [800, 850, 900, 950],
+                'ivaPaid' => [true, false, false, false],
+                'irpfPaid' => [true, true, false, false],
             ],
         ];
 
@@ -119,7 +119,9 @@ class CashFlowControllerTest extends TestCase
         $this->assertCount(1, $plan->rows()->where('kind', 'income')->get());
         $this->assertCount(1, $plan->rows()->where('kind', 'expense')->get());
         $this->assertCount(1, $plan->rows()->where('kind', 'salary')->get());
-        $this->assertSame(4, $plan->quarterlyTaxes()->where('kind', 'iva')->count());
+        // Seuls les trimestres marqués payés sont persistés.
+        $this->assertSame(1, $plan->quarterlyTaxes()->where('kind', 'iva')->count());
+        $this->assertSame(2, $plan->quarterlyTaxes()->where('kind', 'irpf')->count());
 
         $expenseRow = $plan->rows()->where('kind', 'expense')->first();
         $this->assertSame(12, $expenseRow->cells()->count());

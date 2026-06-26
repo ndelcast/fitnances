@@ -78,6 +78,10 @@ const salaryState = reactive({
     paid: [...props.salary.paid],
 });
 
+// Statut payé des taxes trimestrielles (4 booleans par kind).
+const ivaPaidState = reactive([...(props.quarterlyTaxes.ivaPaid ?? [false, false, false, false])]);
+const irpfPaidState = reactive([...(props.quarterlyTaxes.irpfPaid ?? [false, false, false, false])]);
+
 const isCurrentMonth = (i) => i === todayMonth.value;
 const isPastMonth = (i) => todayMonth.value >= 0 && i < todayMonth.value;
 
@@ -163,6 +167,23 @@ const expensesPaidByMonth = computed(() =>
     months.map((_, i) => expensesState.reduce((s, l) => s + (l.paid[i] ? (l.monthly[i] ?? 0) : 0), 0)),
 );
 
+const salaryPaidByMonth = computed(() =>
+    months.map((_, i) => (salaryState.paid[i] ? (salaryState.monthly[i] ?? 0) : 0)),
+);
+
+// Taxes payées projetées sur le mois où elles tomberaient (Q1 → Abr, etc.).
+const paidTaxesMonthly = (quarterlyAmounts, quarterlyPaid) => {
+    const arr = new Array(12).fill(0);
+    quarterlyAmounts.forEach((amount, q) => {
+        const m = quarterPaymentMonth[q];
+        if (m !== null && quarterlyPaid[q]) arr[m] = amount;
+    });
+    return arr;
+};
+const ivaPaidMonthly = computed(() => paidTaxesMonthly(ivaState.value, ivaPaidState));
+const irpfPaidMonthly = computed(() => paidTaxesMonthly(irpfState.value, irpfPaidState));
+const paidTaxesByMonth = computed(() => months.map((_, i) => ivaPaidMonthly.value[i] + irpfPaidMonthly.value[i]));
+
 const isVencido = (section, rowIdx, monthIdx) => {
     if (!isPastMonth(monthIdx)) return false;
     const row = section === 'incomes' ? incomesState[rowIdx] : expensesState[rowIdx];
@@ -173,13 +194,25 @@ const isVencido = (section, rowIdx, monthIdx) => {
 
 const taxesByMonth = computed(() => months.map((_, i) => ivaMonthly.value[i] + irpfMonthly.value[i]));
 
+// Mois → numéro de trimestre (0-3) si c'est un mois de déclaration, sinon null.
+const monthToQuarter = (monthIdx) => quarterPaymentMonth.indexOf(monthIdx);
+
+const toggleTaxPaid = (kind, monthIdx) => {
+    const q = monthToQuarter(monthIdx);
+    if (q < 0) return;
+    const state = kind === 'iva' ? ivaPaidState : irpfPaidState;
+    state[q] = !state[q];
+};
+
+// Saldo = caisse réelle : seulement ce qui est marqué payé/cobrado.
+// (incomesRealizedByMonth + expensesPaidByMonth déjà filtrés sur `paid`).
 const monthlyBalance = computed(() =>
     months.map(
         (_, i) =>
-            incomesByMonth.value[i] -
-            expensesByMonth.value[i] -
-            taxesByMonth.value[i] -
-            (salaryState.monthly[i] ?? 0),
+            incomesRealizedByMonth.value[i] -
+            expensesPaidByMonth.value[i] -
+            paidTaxesByMonth.value[i] -
+            salaryPaidByMonth.value[i],
     ),
 );
 
@@ -232,7 +265,10 @@ const buildPayload = () => ({
         monthly: salaryState.monthly.map((v) => Number(v) || 0),
         paid: salaryState.paid.map((p) => !!p),
     },
-    // Les trimestres IVA/IRPF sont désormais dérivés du tableau, pas persistés.
+    quarterlyTaxes: {
+        ivaPaid: [...ivaPaidState],
+        irpfPaid: [...irpfPaidState],
+    },
 });
 
 const persistNow = () => {
@@ -256,7 +292,7 @@ const scheduleSave = () => {
 };
 
 // Auto-save sur tout changement profond.
-watch([incomesState, expensesState, salaryState], scheduleSave, { deep: true });
+watch([incomesState, expensesState, salaryState, ivaPaidState, irpfPaidState], scheduleSave, { deep: true });
 
 const saveStateLabel = computed(() => {
     if (saving.value) return 'Guardando...';
@@ -569,14 +605,13 @@ const flash = computed(() => page.props.flash);
                                     {{ m }}
                                 </span>
                             </th>
-                            <th class="min-w-[130px] bg-surface-100 px-3 py-3 text-right font-bold text-surface-700">Total</th>
                         </tr>
                     </thead>
 
                     <tbody>
                         <!-- INGRESOS -->
                         <tr class="bg-emerald-50/30">
-                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2" :colspan="13">
                                 <div class="flex items-center gap-3">
                                     <span class="text-xs font-bold uppercase tracking-wider text-emerald-700">Ingresos</span>
                                     <button
@@ -634,24 +669,21 @@ const flash = computed(() => page.props.flash);
                                 </span>
                                 <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-emerald-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'incomes', rowIdx, monthIdx)" @click.stop />
                             </td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">{{ formatCompact(sumRow(line.monthly)) }}</td>
                         </tr>
                         <tr class="border-b border-emerald-100">
                             <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
                                 <i class="pi pi-check-circle mr-1 text-xs" />Cobrado
                             </td>
                             <td v-for="(v, i) in incomesRealizedByMonth" :key="i" class="px-2 py-2 text-right tabular-nums text-emerald-700" :class="!v ? 'text-emerald-700/40' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-emerald-50 px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">{{ formatCompact(sumRow(incomesRealizedByMonth)) }}</td>
                         </tr>
                         <tr class="border-b-2 border-emerald-200 bg-emerald-100/40">
                             <td class="sticky left-0 z-10 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Total previsto</td>
                             <td v-for="(v, i) in incomesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-emerald-800">{{ formatCompact(v) }}</td>
-                            <td class="bg-emerald-200/60 px-3 py-2 text-right font-bold tabular-nums text-emerald-900">{{ formatCompact(sumRow(incomesByMonth)) }}</td>
                         </tr>
 
                         <!-- GASTOS -->
                         <tr class="bg-red-50/30">
-                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2" :colspan="13">
                                 <div class="flex items-center gap-3">
                                     <span class="text-xs font-bold uppercase tracking-wider text-red-700">Gastos</span>
                                     <button
@@ -705,24 +737,21 @@ const flash = computed(() => page.props.flash);
                                 </span>
                                 <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-red-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'expenses', rowIdx, monthIdx)" @click.stop />
                             </td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-red-700">{{ formatCompact(sumRow(line.monthly)) }}</td>
                         </tr>
                         <tr class="border-b border-red-100">
                             <td class="sticky left-0 z-10 bg-red-50 px-4 py-2 text-sm text-red-700">
                                 <i class="pi pi-check-circle mr-1 text-xs" />Pagado
                             </td>
                             <td v-for="(v, i) in expensesPaidByMonth" :key="i" class="px-2 py-2 text-right tabular-nums text-red-700" :class="!v ? 'text-red-700/40' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-red-50 px-3 py-2 text-right font-semibold tabular-nums text-red-700">{{ formatCompact(sumRow(expensesPaidByMonth)) }}</td>
                         </tr>
                         <tr class="border-b-2 border-red-200 bg-red-100/40">
                             <td class="sticky left-0 z-10 bg-red-100 px-4 py-2 font-semibold text-red-800">Total previsto</td>
                             <td v-for="(v, i) in expensesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-red-800">{{ formatCompact(v) }}</td>
-                            <td class="bg-red-200/60 px-3 py-2 text-right font-bold tabular-nums text-red-900">{{ formatCompact(sumRow(expensesByMonth)) }}</td>
                         </tr>
 
                         <!-- OBLIGACIONES FISCALES -->
                         <tr class="bg-amber-50/40">
-                            <td class="sticky left-0 z-10 bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-amber-700" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-amber-700" :colspan="13">
                                 Obligaciones fiscales (trimestrales)
                             </td>
                         </tr>
@@ -731,26 +760,51 @@ const flash = computed(() => page.props.flash);
                                 <span class="font-medium">IVA</span>
                                 <Tag value="Modelo 303" severity="secondary" class="ml-2 !text-[10px]" />
                             </td>
-                            <td v-for="(v, i) in ivaMonthly" :key="i" class="px-2 py-2 text-right tabular-nums" :class="!v ? 'text-surface-300' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-amber-700">{{ formatCompact(sumRow(ivaMonthly)) }}</td>
+                            <td
+                                v-for="(v, i) in ivaMonthly"
+                                :key="i"
+                                class="px-2 py-2 text-right tabular-nums"
+                                :class="[
+                                    !v ? 'text-surface-300' : '',
+                                    v && monthToQuarter(i) >= 0 ? 'cursor-pointer hover:bg-amber-100/40' : '',
+                                    v && ivaPaidState[monthToQuarter(i)] ? 'font-semibold text-emerald-700' : '',
+                                ]"
+                                v-tooltip.top="v && monthToQuarter(i) >= 0 ? (ivaPaidState[monthToQuarter(i)] ? 'Pagado — clic para revertir' : 'Marcar como pagado') : ''"
+                                @click="v && toggleTaxPaid('iva', i)"
+                            >
+                                <i v-if="v && ivaPaidState[monthToQuarter(i)]" class="pi pi-check-circle mr-1 text-[10px]" />
+                                {{ formatCompact(v) }}
+                            </td>
                         </tr>
                         <tr v-if="!irpfExempt" class="border-b border-surface-100">
                             <td class="sticky left-0 z-10 bg-white px-4 py-2 text-surface-800">
                                 <span class="font-medium">IRPF (pago fraccionado)</span>
                                 <Tag value="Modelo 130" severity="secondary" class="ml-2 !text-[10px]" />
                             </td>
-                            <td v-for="(v, i) in irpfMonthly" :key="i" class="px-2 py-2 text-right tabular-nums" :class="!v ? 'text-surface-300' : ''">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-50 px-3 py-2 text-right font-semibold tabular-nums text-amber-700">{{ formatCompact(sumRow(irpfMonthly)) }}</td>
+                            <td
+                                v-for="(v, i) in irpfMonthly"
+                                :key="i"
+                                class="px-2 py-2 text-right tabular-nums"
+                                :class="[
+                                    !v ? 'text-surface-300' : '',
+                                    v && monthToQuarter(i) >= 0 ? 'cursor-pointer hover:bg-amber-100/40' : '',
+                                    v && irpfPaidState[monthToQuarter(i)] ? 'font-semibold text-emerald-700' : '',
+                                ]"
+                                v-tooltip.top="v && monthToQuarter(i) >= 0 ? (irpfPaidState[monthToQuarter(i)] ? 'Pagado — clic para revertir' : 'Marcar como pagado') : ''"
+                                @click="v && toggleTaxPaid('irpf', i)"
+                            >
+                                <i v-if="v && irpfPaidState[monthToQuarter(i)]" class="pi pi-check-circle mr-1 text-[10px]" />
+                                {{ formatCompact(v) }}
+                            </td>
                         </tr>
                         <tr class="border-b-2 border-amber-200 bg-amber-100/40">
                             <td class="sticky left-0 z-10 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Total fiscal</td>
                             <td v-for="(v, i) in taxesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-amber-800">{{ formatCompact(v) }}</td>
-                            <td class="bg-amber-200/60 px-3 py-2 text-right font-bold tabular-nums text-amber-900">{{ formatCompact(sumRow(taxesByMonth)) }}</td>
                         </tr>
 
                         <!-- SALARIO -->
                         <tr class="bg-violet-50/40">
-                            <td class="sticky left-0 z-10 bg-violet-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-violet-700" :colspan="14">
+                            <td class="sticky left-0 z-10 bg-violet-50 px-4 py-2 text-xs font-bold uppercase tracking-wider text-violet-700" :colspan="13">
                                 Pago a mí mismo
                             </td>
                         </tr>
@@ -760,23 +814,33 @@ const flash = computed(() => page.props.flash);
                                 v-for="(v, monthIdx) in salaryState.monthly"
                                 :key="monthIdx"
                                 class="group relative cursor-pointer px-2 py-2 text-right font-semibold tabular-nums text-violet-800 transition-colors hover:bg-violet-100/60"
+                                :class="[
+                                    isDragHighlighted('salary', 0, monthIdx) ? 'bg-violet-200/60 ring-1 ring-inset ring-violet-400' : '',
+                                ]"
                                 @click="openCellEditor($event, 'salary', 0, monthIdx)"
+                                @mouseenter="onCellEnter('salary', 0, monthIdx)"
                             >
-                                {{ formatCompact(v) }}
+                                <span class="inline-flex items-center gap-1">
+                                    <i v-if="v && salaryState.paid[monthIdx]" class="pi pi-check-circle text-[10px] text-emerald-600" />
+                                    {{ formatCompact(v) }}
+                                </span>
+                                <span
+                                    v-if="v"
+                                    class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-violet-600 opacity-0 transition-opacity group-hover:opacity-100"
+                                    @mousedown="startDrag($event, 'salary', 0, monthIdx)"
+                                    @click.stop
+                                />
                             </td>
-                            <td class="bg-violet-200/60 px-3 py-2 text-right font-bold tabular-nums text-violet-900">{{ formatCompact(sumRow(salaryState.monthly)) }}</td>
                         </tr>
 
                         <!-- BALANCE -->
                         <tr class="border-b border-surface-200">
                             <td class="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-surface-700">Saldo del mes</td>
                             <td v-for="(v, i) in monthlyBalance" :key="i" class="px-2 py-3 text-right font-semibold tabular-nums" :class="v >= 0 ? 'text-surface-700' : 'text-red-600'">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-100 px-3 py-3 text-right font-bold tabular-nums text-surface-900">{{ formatCompact(sumRow(monthlyBalance)) }}</td>
                         </tr>
                         <tr class="bg-surface-50">
                             <td class="sticky left-0 z-10 bg-surface-50 px-4 py-3 font-bold text-surface-900">Saldo acumulado</td>
                             <td v-for="(v, i) in cumulativeBalance" :key="i" class="px-2 py-3 text-right font-bold tabular-nums" :class="v >= 0 ? 'text-emerald-700' : 'text-red-700'">{{ formatCompact(v) }}</td>
-                            <td class="bg-surface-200/80 px-3 py-3 text-right font-bold tabular-nums text-surface-900">{{ formatCompact(cumulativeBalance[11]) }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -796,8 +860,23 @@ const flash = computed(() => page.props.flash);
                     <InputNumber v-model="cellForm.amount" :minFractionDigits="0" :maxFractionDigits="2" locale="es-ES" suffix=" €" autofocus fluid @keydown.enter="saveCellEdit" />
                 </div>
 
-                <div v-if="editingCell && editingCell.section !== 'salary'" class="flex items-center justify-between rounded-md px-3 py-2" :class="editingCell.section === 'incomes' ? 'bg-emerald-50' : 'bg-red-50'">
-                    <span class="text-sm font-medium" :class="editingCell.section === 'incomes' ? 'text-emerald-800' : 'text-red-800'">
+                <div
+                    v-if="editingCell"
+                    class="flex items-center justify-between rounded-md px-3 py-2"
+                    :class="{
+                        'bg-emerald-50': editingCell.section === 'incomes',
+                        'bg-red-50': editingCell.section === 'expenses',
+                        'bg-violet-50': editingCell.section === 'salary',
+                    }"
+                >
+                    <span
+                        class="text-sm font-medium"
+                        :class="{
+                            'text-emerald-800': editingCell.section === 'incomes',
+                            'text-red-800': editingCell.section === 'expenses',
+                            'text-violet-800': editingCell.section === 'salary',
+                        }"
+                    >
                         {{ editingCell.section === 'incomes' ? 'Cobrado' : 'Pagado' }}
                     </span>
                     <ToggleSwitch v-model="cellForm.paid" />

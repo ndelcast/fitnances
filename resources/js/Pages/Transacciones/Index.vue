@@ -48,6 +48,12 @@ const statusFilterOptions = [
     { label: 'Realizado', value: 'realizado' },
 ];
 
+const paidFilterOptions = [
+    { label: 'Todos', value: null },
+    { label: 'Cobrado / Pagado', value: true },
+    { label: 'Pendiente', value: false },
+];
+
 const formTypeOptions = [
     { label: 'Ingreso', value: 'income' },
     { label: 'Gasto', value: 'expense' },
@@ -68,6 +74,7 @@ const irpfOptions = [
 
 const filterType = ref(null);
 const filterStatus = ref(null);
+const filterPaid = ref(null);
 const filterCategoryId = ref(null);
 const filterSearch = ref('');
 
@@ -84,6 +91,7 @@ const filteredTransactions = computed(() =>
     props.transactions.filter((t) => {
         if (filterType.value && t.type !== filterType.value) return false;
         if (filterStatus.value && t.status !== filterStatus.value) return false;
+        if (filterPaid.value !== null && t.is_paid !== filterPaid.value) return false;
         if (filterCategoryId.value && t.category_id !== filterCategoryId.value) return false;
         if (filterSearch.value && !t.label.toLowerCase().includes(filterSearch.value.toLowerCase())) {
             return false;
@@ -117,6 +125,7 @@ function emptyForm() {
         has_iva: true,
         iva_rate: 21,
         irpf_rate: 0,
+        paid: false,
     };
 }
 
@@ -145,6 +154,7 @@ const openCreate = (type = 'expense') => {
 };
 
 const openEdit = (row) => {
+    if (row.is_planned) return;
     editingId.value = row.id;
     form.value = {
         type: row.type,
@@ -155,6 +165,7 @@ const openEdit = (row) => {
         has_iva: row.iva_rate != null && row.iva_rate > 0,
         iva_rate: row.iva_rate && row.iva_rate > 0 ? row.iva_rate : 21,
         irpf_rate: row.irpf_rate ?? 0,
+        paid: !!row.is_paid,
     };
     drawerOpen.value = true;
 };
@@ -166,6 +177,7 @@ const buildPayload = () => ({
     amount: form.value.amount,
     iva_rate: form.value.has_iva ? form.value.iva_rate : 0,
     irpf_rate: form.value.irpf_rate,
+    paid: form.value.paid,
     occurred_on:
         form.value.occurred_on instanceof Date
             ? form.value.occurred_on.toISOString().split('T')[0]
@@ -192,9 +204,9 @@ const save = () => {
     }
 };
 
-const markAsRealizado = (row, event) => {
+const togglePaid = (row, event) => {
     event.stopPropagation();
-    router.patch(`/transactions/${row.id}/realize`, {}, { preserveScroll: true });
+    router.patch(`/transactions/${row.id}/toggle-paid`, {}, { preserveScroll: true });
 };
 
 const askDelete = (event) => {
@@ -222,6 +234,20 @@ const statusMeta = (status) =>
     status === 'realizado'
         ? { label: 'Realizado', severity: 'success', icon: 'pi-check-circle' }
         : { label: 'Previsto', severity: 'warn', icon: 'pi-clock' };
+
+const paidMeta = (row) => {
+    if (row.is_paid) {
+        return {
+            label: row.type === 'income' ? 'Cobrado' : 'Pagado',
+            severity: 'success',
+            icon: 'pi-check-circle',
+        };
+    }
+    if (row.status === 'realizado') {
+        return { label: 'Vencido', severity: 'danger', icon: 'pi-exclamation-circle' };
+    }
+    return { label: 'Pendiente', severity: 'warn', icon: 'pi-clock' };
+};
 
 const flash = computed(() => page.props.flash);
 </script>
@@ -263,6 +289,7 @@ const flash = computed(() => page.props.flash);
                     </IconField>
                     <Select v-model="filterType" :options="typeFilterOptions" optionLabel="label" optionValue="value" placeholder="Tipo" />
                     <Select v-model="filterStatus" :options="statusFilterOptions" optionLabel="label" optionValue="value" placeholder="Estado" />
+                    <Select v-model="filterPaid" :options="paidFilterOptions" optionLabel="label" optionValue="value" placeholder="Cobro / Pago" />
                     <Select v-model="filterCategoryId" :options="categoryOptionsForFilter" optionLabel="label" optionValue="value" placeholder="Categoría" />
                 </div>
                 <div class="flex gap-2">
@@ -288,9 +315,9 @@ const flash = computed(() => page.props.flash);
                         </div>
                     </template>
 
-                    <Column field="status" header="Estado" :style="{ width: '120px' }">
+                    <Column field="is_paid" header="Estado" :style="{ width: '130px' }">
                         <template #body="{ data }">
-                            <Tag :value="statusMeta(data.status).label" :severity="statusMeta(data.status).severity" :icon="'pi ' + statusMeta(data.status).icon" />
+                            <Tag :value="paidMeta(data).label" :severity="paidMeta(data).severity" :icon="'pi ' + paidMeta(data).icon" />
                         </template>
                     </Column>
 
@@ -342,17 +369,34 @@ const flash = computed(() => page.props.flash);
                         </template>
                     </Column>
 
+                    <Column :style="{ width: '70px' }">
+                        <template #body="{ data }">
+                            <Button
+                                v-if="!data.is_planned"
+                                :icon="data.is_paid ? 'pi pi-undo' : 'pi pi-check'"
+                                size="small"
+                                :severity="data.is_paid ? 'secondary' : 'success'"
+                                text
+                                rounded
+                                v-tooltip.left="data.is_paid
+                                    ? 'Marcar como pendiente'
+                                    : data.type === 'income' ? 'Marcar como cobrado' : 'Marcar como pagado'"
+                                @click="togglePaid(data, $event)"
+                            />
+                        </template>
+                    </Column>
+
                     <Column :style="{ width: '60px' }">
                         <template #body="{ data }">
                             <Button
-                                v-if="data.status === 'previsto' && !data.is_planned"
-                                icon="pi pi-check"
+                                v-if="!data.is_planned"
+                                icon="pi pi-pencil"
                                 size="small"
-                                severity="success"
+                                severity="secondary"
                                 text
                                 rounded
-                                v-tooltip.left="data.type === 'income' ? 'Marcar como cobrado' : 'Marcar como pagado'"
-                                @click="markAsRealizado(data, $event)"
+                                v-tooltip.left="'Editar'"
+                                @click.stop="openEdit(data)"
                             />
                         </template>
                     </Column>
@@ -442,6 +486,20 @@ const flash = computed(() => page.props.flash);
                     <Message severity="info" size="small" variant="simple">
                         Aplica solo en facturas B2B en España.
                     </Message>
+                </div>
+
+                <div class="flex items-center justify-between rounded-lg border border-surface-200 px-3 py-2">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">
+                            {{ form.type === 'income' ? 'Cobrado' : 'Pagado' }}
+                        </p>
+                        <p class="text-xs text-surface-500">
+                            {{ form.type === 'income'
+                                ? 'Indica si el cliente ya ha pagado esta factura.'
+                                : 'Indica si has pagado este gasto.' }}
+                        </p>
+                    </div>
+                    <ToggleSwitch v-model="form.paid" />
                 </div>
 
                 <div class="mt-2 flex gap-2">

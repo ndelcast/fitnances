@@ -61,16 +61,24 @@ final class CashFlowPlanService
                 $this->createRow($plan, CashFlowRowKind::Salary, $payload['salary'], $sort++);
             }
 
+            // Le montant des taxes est calculé côté Vue ; on ne persiste ici
+            // que leur statut "payé" (pour le calcul du saldo réel).
             $plan->quarterlyTaxes()->delete();
+            $paidMap = [
+                QuarterlyTaxKind::Iva->value => $payload['quarterlyTaxes']['ivaPaid'] ?? [],
+                QuarterlyTaxKind::Irpf->value => $payload['quarterlyTaxes']['irpfPaid'] ?? [],
+            ];
             foreach ([QuarterlyTaxKind::Iva, QuarterlyTaxKind::Irpf] as $kind) {
-                $key = $kind->value;
-                $values = $payload['quarterlyTaxes'][$key] ?? [];
-                foreach ($values as $idx => $amount) {
+                foreach ($paidMap[$kind->value] as $idx => $paid) {
+                    if (! $paid) {
+                        continue;
+                    }
                     QuarterlyTax::create([
                         'plan_id' => $plan->id,
                         'kind' => $kind,
                         'quarter' => $idx + 1,
-                        'amount' => $this->toCents($amount),
+                        'amount' => 0,
+                        'paid_at' => now(),
                     ]);
                 }
             }
@@ -115,6 +123,7 @@ final class CashFlowPlanService
                     'occurred_on' => $cell->paid_at
                         ? $cell->paid_at->toDateString()
                         : CarbonImmutable::create($plan->year, $cell->month, 15)->toDateString(),
+                    'paid_at' => $cell->paid_at,
                 ]);
             }
         }

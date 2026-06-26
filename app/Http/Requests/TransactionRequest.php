@@ -27,6 +27,7 @@ class TransactionRequest extends FormRequest
             ],
             'iva_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'irpf_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'paid' => ['nullable', 'boolean'],
         ];
     }
 
@@ -37,6 +38,10 @@ class TransactionRequest extends FormRequest
     {
         $data = $this->validated();
         $data['amount'] = (int) round(((float) $data['amount']) * 100);
+
+        $paid = $data['paid'] ?? false;
+        unset($data['paid']);
+        $data['paid_at'] = $paid ? now() : null;
 
         return $data;
     }

@@ -49,7 +49,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/transactions', [TransactionController::class, 'store'])->name('transactions.store');
     Route::put('/transactions/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
     Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
-    Route::patch('/transactions/{transaction}/realize', [TransactionController::class, 'realize'])->name('transactions.realize');
+    Route::patch('/transactions/{transaction}/toggle-paid', [TransactionController::class, 'togglePaid'])->name('transactions.toggle-paid');
 
     Route::get('/recurring-charges', [RecurringChargeController::class, 'index'])->name('recurring-charges.index');
     Route::post('/recurring-charges', [RecurringChargeController::class, 'store'])->name('recurring-charges.store');

@@ -24,6 +24,7 @@ class Transaction extends Model
         'irpf_rate',
         'label',
         'occurred_on',
+        'paid_at',
         'source',
     ];
 
@@ -36,6 +37,7 @@ class Transaction extends Model
             'iva_rate' => 'decimal:2',
             'irpf_rate' => 'decimal:2',
             'occurred_on' => 'date',
+            'paid_at' => 'datetime',
         ];
     }
 

@@ -138,15 +138,19 @@ class TransactionControllerTest extends TestCase
         $this->assertDatabaseMissing('transactions', ['id' => $tx->id]);
     }
 
-    public function test_realize_passe_la_date_a_aujourd_hui(): void
+    public function test_toggle_paid_marque_la_transaction_comme_cobrada(): void
     {
         $user = User::factory()->create();
         $tx = Transaction::factory()->income()->for($user)->create([
-            'occurred_on' => '2026-07-15', // futuro → previsto
+            'paid_at' => null,
         ]);
 
-        $this->actingAs($user)->patch("/transactions/{$tx->id}/realize")->assertRedirect();
+        $this->actingAs($user)->patch("/transactions/{$tx->id}/toggle-paid")->assertRedirect();
 
-        $this->assertSame('2026-06-20', $tx->fresh()->occurred_on->toDateString());
+        $this->assertNotNull($tx->fresh()->paid_at);
+
+        // Re-toggle → revient à pendiente.
+        $this->actingAs($user)->patch("/transactions/{$tx->id}/toggle-paid")->assertRedirect();
+        $this->assertNull($tx->fresh()->paid_at);
     }
 }

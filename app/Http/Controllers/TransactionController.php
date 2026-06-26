@@ -33,6 +33,7 @@ class TransactionController extends Controller
                 'category_name' => $t->category?->name,
                 'occurred_on' => $t->occurred_on->toDateString(),
                 'status' => $t->occurred_on->lte($today) ? 'realizado' : 'previsto',
+                'is_paid' => $t->paid_at !== null,
                 'is_planned' => $t->cash_flow_plan_id !== null,
             ]);
 
@@ -78,14 +79,16 @@ class TransactionController extends Controller
         return back()->with('success', 'Transacción eliminada.');
     }
 
-    public function realize(Request $request, Transaction $transaction): RedirectResponse
+    public function togglePaid(Request $request, Transaction $transaction): RedirectResponse
     {
         $this->authorizeOwner($request, $transaction);
         $this->assertNotPlanned($transaction);
 
-        $transaction->update(['occurred_on' => CarbonImmutable::today()]);
+        $transaction->update([
+            'paid_at' => $transaction->paid_at ? null : now(),
+        ]);
 
-        return back()->with('success', 'Marcada como realizada.');
+        return back();
     }
 
     private function assertNotPlanned(Transaction $transaction): void

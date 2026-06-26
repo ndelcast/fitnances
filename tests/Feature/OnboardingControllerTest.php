@@ -20,7 +20,7 @@ class OnboardingControllerTest extends TestCase
             'monthly_salary' => 200000,
         ]);
 
-        $this->actingAs($user)->get('/asistente')
+        $this->actingAs($user)->get('/onboarding')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('Asistente/Index')
@@ -33,11 +33,11 @@ class OnboardingControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->post('/asistente', [
+        $this->actingAs($user)->post('/onboarding', [
             'annualRevenue' => 50000,
             'cuotaMonthly' => 469,
             'monthlySalary' => 2200,
-        ])->assertRedirect('/flujo-caja');
+        ])->assertRedirect('/cash-flow');
 
         $profile = $user->fresh()->financialProfile;
         $this->assertSame(46900, $profile->cuota_monthly);
@@ -69,7 +69,7 @@ class OnboardingControllerTest extends TestCase
             'is_active' => false,
         ]);
 
-        $this->actingAs($user)->post('/asistente', [
+        $this->actingAs($user)->post('/onboarding', [
             'annualRevenue' => 30000,
             'cuotaMonthly' => 469,
             'monthlySalary' => 1500,
@@ -85,7 +85,7 @@ class OnboardingControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->postJson('/asistente', [
+        $this->actingAs($user)->postJson('/onboarding', [
             'annualRevenue' => -10,
             'cuotaMonthly' => null,
             'monthlySalary' => null,

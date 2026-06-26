@@ -135,14 +135,14 @@ class CashFlowSyncTransactionsTest extends TestCase
 
         $tx = Transaction::firstWhere('label', 'A');
 
-        $this->actingAs($user)->putJson("/transacciones/{$tx->id}", [
+        $this->actingAs($user)->putJson("/transactions/{$tx->id}", [
             'type' => 'income',
             'label' => 'Hacked',
             'amount' => 999,
             'occurred_on' => '2026-06-15',
         ])->assertStatus(422);
 
-        $this->actingAs($user)->deleteJson("/transacciones/{$tx->id}")->assertStatus(422);
+        $this->actingAs($user)->deleteJson("/transactions/{$tx->id}")->assertStatus(422);
     }
 
     public function test_les_transactions_manuelles_ne_sont_pas_touchees_par_la_sync(): void

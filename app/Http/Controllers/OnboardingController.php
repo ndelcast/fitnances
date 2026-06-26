@@ -81,7 +81,7 @@ class OnboardingController extends Controller
             }
         });
 
-        return redirect()->route('flujo-caja.index')
+        return redirect()->route('cash-flow.index')
             ->with('success', 'Tu asistente anual está listo.');
     }
 }

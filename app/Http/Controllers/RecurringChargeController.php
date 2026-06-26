@@ -67,9 +67,9 @@ class RecurringChargeController extends Controller
         return back()->with('success', 'Cargo creado.');
     }
 
-    public function update(RecurringChargeRequest $request, RecurringCharge $cargo): RedirectResponse
+    public function update(RecurringChargeRequest $request, RecurringCharge $charge): RedirectResponse
     {
-        $this->authorizeOwner($request, $cargo);
+        $this->authorizeOwner($request, $charge);
 
         $data = $request->attributesForModel();
         $data['next_due_on'] = $this->nextDue->compute(
@@ -78,31 +78,31 @@ class RecurringChargeController extends Controller
             CarbonImmutable::today(),
         );
 
-        $cargo->update($data);
+        $charge->update($data);
 
         return back()->with('success', 'Cargo actualizado.');
     }
 
-    public function destroy(Request $request, RecurringCharge $cargo): RedirectResponse
+    public function destroy(Request $request, RecurringCharge $charge): RedirectResponse
     {
-        $this->authorizeOwner($request, $cargo);
+        $this->authorizeOwner($request, $charge);
 
-        $cargo->delete();
+        $charge->delete();
 
         return back()->with('success', 'Cargo eliminado.');
     }
 
-    public function toggle(Request $request, RecurringCharge $cargo): RedirectResponse
+    public function toggle(Request $request, RecurringCharge $charge): RedirectResponse
     {
-        $this->authorizeOwner($request, $cargo);
+        $this->authorizeOwner($request, $charge);
 
-        $cargo->update(['is_active' => ! $cargo->is_active]);
+        $charge->update(['is_active' => ! $charge->is_active]);
 
         return back();
     }
 
-    private function authorizeOwner(Request $request, RecurringCharge $cargo): void
+    private function authorizeOwner(Request $request, RecurringCharge $charge): void
     {
-        abort_unless($cargo->user_id === $request->user()->id, 403);
+        abort_unless($charge->user_id === $request->user()->id, 403);
     }
 }

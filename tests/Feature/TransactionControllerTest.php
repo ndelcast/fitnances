@@ -41,7 +41,7 @@ class TransactionControllerTest extends TestCase
             'occurred_on' => '2026-07-01', // futuro → previsto
         ]);
 
-        $this->actingAs($user)->get('/transacciones')
+        $this->actingAs($user)->get('/transactions')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('Transacciones/Index')
@@ -60,7 +60,7 @@ class TransactionControllerTest extends TestCase
         $user = User::factory()->create();
         $category = Category::factory()->income()->for($user)->create();
 
-        $this->actingAs($user)->post('/transacciones', [
+        $this->actingAs($user)->post('/transactions', [
             'type' => 'income',
             'label' => 'Factura nueva',
             'amount' => 1500.50,
@@ -82,7 +82,7 @@ class TransactionControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->postJson('/transacciones', [
+        $this->actingAs($user)->postJson('/transactions', [
             'type' => 'bidon',
             'label' => '',
             'amount' => -10,
@@ -100,7 +100,7 @@ class TransactionControllerTest extends TestCase
             'occurred_on' => '2026-06-01',
         ]);
 
-        $this->actingAs($user)->put("/transacciones/{$tx->id}", [
+        $this->actingAs($user)->put("/transactions/{$tx->id}", [
             'type' => 'expense',
             'label' => 'Nuevo',
             'amount' => 75,
@@ -120,7 +120,7 @@ class TransactionControllerTest extends TestCase
         $bob = User::factory()->create();
         $tx = Transaction::factory()->for($alice)->create();
 
-        $this->actingAs($bob)->put("/transacciones/{$tx->id}", [
+        $this->actingAs($bob)->put("/transactions/{$tx->id}", [
             'type' => 'expense',
             'label' => 'Hack',
             'amount' => 1,
@@ -133,7 +133,7 @@ class TransactionControllerTest extends TestCase
         $user = User::factory()->create();
         $tx = Transaction::factory()->for($user)->create();
 
-        $this->actingAs($user)->delete("/transacciones/{$tx->id}")->assertRedirect();
+        $this->actingAs($user)->delete("/transactions/{$tx->id}")->assertRedirect();
 
         $this->assertDatabaseMissing('transactions', ['id' => $tx->id]);
     }
@@ -145,7 +145,7 @@ class TransactionControllerTest extends TestCase
             'occurred_on' => '2026-07-15', // futuro → previsto
         ]);
 
-        $this->actingAs($user)->patch("/transacciones/{$tx->id}/realize")->assertRedirect();
+        $this->actingAs($user)->patch("/transactions/{$tx->id}/realize")->assertRedirect();
 
         $this->assertSame('2026-06-20', $tx->fresh()->occurred_on->toDateString());
     }

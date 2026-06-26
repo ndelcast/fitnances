@@ -230,7 +230,7 @@ const buildPayload = () => ({
 
 const persistNow = () => {
     saving.value = true;
-    router.put(`/flujo-caja/${props.year}`, buildPayload(), {
+    router.put(`/cash-flow/${props.year}`, buildPayload(), {
         preserveScroll: true,
         preserveState: true,
         only: [],
@@ -262,7 +262,7 @@ const saveStateLabel = computed(() => {
  * --------------------------------------------------------------- */
 const goToYear = (year) => {
     if (year === props.year) return;
-    router.get('/flujo-caja', { year }, { preserveScroll: true });
+    router.get('/cash-flow', { year }, { preserveScroll: true });
 };
 
 /* ---------------------------------------------------------------
@@ -526,7 +526,7 @@ const flash = computed(() => page.props.flash);
                         </span>
                     </div>
                     <div class="flex gap-2">
-                        <Link href="/asistente">
+                        <Link href="/onboarding">
                             <Button label="Reajustar año" icon="pi pi-sparkles" severity="secondary" outlined size="small" />
                         </Link>
                     </div>

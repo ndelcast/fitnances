@@ -33,25 +33,25 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
 
-    Route::get('/transacciones', [TransactionController::class, 'index'])->name('transacciones.index');
-    Route::post('/transacciones', [TransactionController::class, 'store'])->name('transacciones.store');
-    Route::put('/transacciones/{transaction}', [TransactionController::class, 'update'])->name('transacciones.update');
-    Route::delete('/transacciones/{transaction}', [TransactionController::class, 'destroy'])->name('transacciones.destroy');
-    Route::patch('/transacciones/{transaction}/realize', [TransactionController::class, 'realize'])->name('transacciones.realize');
+    Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions.index');
+    Route::post('/transactions', [TransactionController::class, 'store'])->name('transactions.store');
+    Route::put('/transactions/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
+    Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
+    Route::patch('/transactions/{transaction}/realize', [TransactionController::class, 'realize'])->name('transactions.realize');
 
-    Route::get('/cargos-recurrentes', [RecurringChargeController::class, 'index'])->name('cargos-recurrentes.index');
-    Route::post('/cargos-recurrentes', [RecurringChargeController::class, 'store'])->name('cargos-recurrentes.store');
-    Route::put('/cargos-recurrentes/{cargo}', [RecurringChargeController::class, 'update'])->name('cargos-recurrentes.update');
-    Route::delete('/cargos-recurrentes/{cargo}', [RecurringChargeController::class, 'destroy'])->name('cargos-recurrentes.destroy');
-    Route::patch('/cargos-recurrentes/{cargo}/toggle', [RecurringChargeController::class, 'toggle'])->name('cargos-recurrentes.toggle');
+    Route::get('/recurring-charges', [RecurringChargeController::class, 'index'])->name('recurring-charges.index');
+    Route::post('/recurring-charges', [RecurringChargeController::class, 'store'])->name('recurring-charges.store');
+    Route::put('/recurring-charges/{charge}', [RecurringChargeController::class, 'update'])->name('recurring-charges.update');
+    Route::delete('/recurring-charges/{charge}', [RecurringChargeController::class, 'destroy'])->name('recurring-charges.destroy');
+    Route::patch('/recurring-charges/{charge}/toggle', [RecurringChargeController::class, 'toggle'])->name('recurring-charges.toggle');
 
-    Route::get('/perfil-fiscal', [FinancialProfileController::class, 'edit'])->name('perfil-fiscal.edit');
-    Route::put('/perfil-fiscal', [FinancialProfileController::class, 'update'])->name('perfil-fiscal.update');
+    Route::get('/fiscal-profile', [FinancialProfileController::class, 'edit'])->name('fiscal-profile.edit');
+    Route::put('/fiscal-profile', [FinancialProfileController::class, 'update'])->name('fiscal-profile.update');
 
-    Route::get('/asistente', [OnboardingController::class, 'show'])->name('asistente.index');
-    Route::post('/asistente', [OnboardingController::class, 'store'])->name('asistente.store');
+    Route::get('/onboarding', [OnboardingController::class, 'show'])->name('onboarding.show');
+    Route::post('/onboarding', [OnboardingController::class, 'store'])->name('onboarding.store');
 
-    Route::get('/flujo-caja', [CashFlowController::class, 'index'])->name('flujo-caja.index');
-    Route::put('/flujo-caja/{year}', [CashFlowController::class, 'update'])
-        ->whereNumber('year')->name('flujo-caja.update');
+    Route::get('/cash-flow', [CashFlowController::class, 'index'])->name('cash-flow.index');
+    Route::put('/cash-flow/{year}', [CashFlowController::class, 'update'])
+        ->whereNumber('year')->name('cash-flow.update');
 });

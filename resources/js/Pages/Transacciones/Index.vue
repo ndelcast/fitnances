@@ -186,15 +186,15 @@ const save = () => {
     };
 
     if (editingId.value) {
-        router.put(`/transacciones/${editingId.value}`, payload, options);
+        router.put(`/transactions/${editingId.value}`, payload, options);
     } else {
-        router.post('/transacciones', payload, options);
+        router.post('/transactions', payload, options);
     }
 };
 
 const markAsRealizado = (row, event) => {
     event.stopPropagation();
-    router.patch(`/transacciones/${row.id}/realize`, {}, { preserveScroll: true });
+    router.patch(`/transactions/${row.id}/realize`, {}, { preserveScroll: true });
 };
 
 const askDelete = (event) => {
@@ -208,7 +208,7 @@ const askDelete = (event) => {
         acceptClass: 'p-button-danger',
         accept: () => {
             const id = editingId.value;
-            router.delete(`/transacciones/${id}`, {
+            router.delete(`/transactions/${id}`, {
                 preserveScroll: true,
                 onSuccess: () => {
                     drawerOpen.value = false;

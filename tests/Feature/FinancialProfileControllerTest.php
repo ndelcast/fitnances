@@ -22,7 +22,7 @@ class FinancialProfileControllerTest extends TestCase
             'intra_community' => true,
         ]);
 
-        $this->actingAs($user)->get('/perfil-fiscal')
+        $this->actingAs($user)->get('/fiscal-profile')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('PerfilFiscal/Edit')
@@ -36,7 +36,7 @@ class FinancialProfileControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->get('/perfil-fiscal')->assertOk();
+        $this->actingAs($user)->get('/fiscal-profile')->assertOk();
 
         $this->assertNotNull($user->fresh()->financialProfile);
     }
@@ -46,7 +46,7 @@ class FinancialProfileControllerTest extends TestCase
         $user = User::factory()->create();
         FinancialProfile::factory()->for($user)->create();
 
-        $this->actingAs($user)->put('/perfil-fiscal', [
+        $this->actingAs($user)->put('/fiscal-profile', [
             'full_name' => 'Ana Pérez',
             'nif' => '12345678Z',
             'activity' => 'Consultoría',
@@ -70,7 +70,7 @@ class FinancialProfileControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->putJson('/perfil-fiscal', [
+        $this->actingAs($user)->putJson('/fiscal-profile', [
             'regime' => 'inexistant',
             'iva_default' => 21,
             'irpf_default' => 15,

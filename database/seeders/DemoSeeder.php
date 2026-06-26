@@ -86,6 +86,7 @@ class DemoSeeder extends Seeder
             'label' => 'Alquiler oficina',
             'amount' => 65000,
             'frequency' => ChargeFrequency::Monthly,
+            'day_of_month' => 1,
             'next_due_on' => $today->addDays(4),
         ]);
         RecurringCharge::factory()->for($user)->create([
@@ -93,6 +94,7 @@ class DemoSeeder extends Seeder
             'label' => 'Cuota autónomos',
             'amount' => 46900,
             'frequency' => ChargeFrequency::Monthly,
+            'day_of_month' => 30,
             'next_due_on' => $today->addDays(5),
         ]);
         RecurringCharge::factory()->for($user)->create([
@@ -100,6 +102,7 @@ class DemoSeeder extends Seeder
             'label' => 'Adobe Creative Cloud',
             'amount' => 6049,
             'frequency' => ChargeFrequency::Monthly,
+            'day_of_month' => 15,
             'next_due_on' => $today->addDays(15),
         ]);
 

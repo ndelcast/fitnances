@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, reactive } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import Button from 'primevue/button';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -13,18 +13,25 @@ import InputIcon from 'primevue/inputicon';
 import Drawer from 'primevue/drawer';
 import ToggleSwitch from 'primevue/toggleswitch';
 import Message from 'primevue/message';
+import ConfirmPopup from 'primevue/confirmpopup';
+import { useConfirm } from 'primevue/useconfirm';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import CategorySelect from '@/Components/CategorySelect.vue';
 import { formatEuros } from '@/lib/format';
 
 const props = defineProps({
     charges: { type: Array, required: true },
-    categories: { type: Array, required: true },
+    categories: { type: Array, required: true }, // [{ id, name, type }]
 });
 
+const page = usePage();
+const confirm = useConfirm();
+
 const categoriesState = reactive([...props.categories]);
-const addCategory = (name) => {
-    if (!categoriesState.includes(name)) categoriesState.push(name);
+const addCategoryFromCreate = (created) => {
+    if (!categoriesState.find((c) => c.id === created.id)) {
+        categoriesState.push(created);
+    }
 };
 
 const frequencyOptions = [
@@ -43,7 +50,7 @@ const monthlyEquivalent = (charge) => {
 };
 
 const filterSearch = ref('');
-const filterCategory = ref(null);
+const filterCategoryId = ref(null);
 const filterStatus = ref(null);
 
 const statusOptions = [
@@ -52,38 +59,39 @@ const statusOptions = [
     { label: 'Inactivos', value: false },
 ];
 
-const categoryOptions = computed(() => [
+const categoryOptionsForFilter = computed(() => [
     { label: 'Todas las categorías', value: null },
-    ...categoriesState.map((c) => ({ label: c, value: c })),
+    ...categoriesState.map((c) => ({ label: c.name, value: c.id })),
 ]);
 
 const filteredCharges = computed(() =>
     props.charges.filter((c) => {
-        if (filterStatus.value !== null && c.active !== filterStatus.value) return false;
-        if (filterCategory.value && c.category !== filterCategory.value) return false;
-        if (filterSearch.value && !c.name.toLowerCase().includes(filterSearch.value.toLowerCase())) return false;
+        if (filterStatus.value !== null && c.is_active !== filterStatus.value) return false;
+        if (filterCategoryId.value && c.category_id !== filterCategoryId.value) return false;
+        if (filterSearch.value && !c.label.toLowerCase().includes(filterSearch.value.toLowerCase())) return false;
         return true;
     }),
 );
 
 const totalMonthly = computed(() =>
-    filteredCharges.value.filter((c) => c.active).reduce((s, c) => s + monthlyEquivalent(c), 0),
+    filteredCharges.value.filter((c) => c.is_active).reduce((s, c) => s + monthlyEquivalent(c), 0),
 );
 
 const totalAnnual = computed(() => totalMonthly.value * 12);
 
 const drawerOpen = ref(false);
 const editingId = ref(null);
+const saving = ref(false);
 const form = ref(emptyForm());
 
 function emptyForm() {
     return {
-        name: '',
+        label: '',
         amount: null,
         frequency: 'monthly',
-        category: null,
-        dayOfMonth: 1,
-        active: true,
+        category_id: null,
+        day_of_month: 1,
+        is_active: true,
     };
 }
 
@@ -96,18 +104,60 @@ const openCreate = () => {
 const openEdit = (charge) => {
     editingId.value = charge.id;
     form.value = {
-        name: charge.name,
+        label: charge.label,
         amount: charge.amount,
         frequency: charge.frequency,
-        category: charge.category,
-        dayOfMonth: charge.dayOfMonth,
-        active: charge.active,
+        category_id: charge.category_id,
+        day_of_month: charge.day_of_month ?? 1,
+        is_active: charge.is_active,
     };
     drawerOpen.value = true;
 };
 
 const save = () => {
-    drawerOpen.value = false;
+    saving.value = true;
+    const payload = { ...form.value };
+    const options = {
+        preserveScroll: true,
+        onSuccess: () => {
+            drawerOpen.value = false;
+        },
+        onFinish: () => {
+            saving.value = false;
+        },
+    };
+
+    if (editingId.value) {
+        router.put(`/cargos-recurrentes/${editingId.value}`, payload, options);
+    } else {
+        router.post('/cargos-recurrentes', payload, options);
+    }
+};
+
+const toggleCharge = (charge, event) => {
+    event.stopPropagation();
+    router.patch(`/cargos-recurrentes/${charge.id}/toggle`, {}, { preserveScroll: true });
+};
+
+const askDelete = (event) => {
+    if (!editingId.value) return;
+    confirm.require({
+        target: event.currentTarget,
+        message: '¿Eliminar este cargo recurrente?',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Eliminar',
+        rejectLabel: 'Cancelar',
+        acceptClass: 'p-button-danger',
+        accept: () => {
+            const id = editingId.value;
+            router.delete(`/cargos-recurrentes/${id}`, {
+                preserveScroll: true,
+                onSuccess: () => {
+                    drawerOpen.value = false;
+                },
+            });
+        },
+    });
 };
 
 const frequencySeverity = (frequency) => {
@@ -115,13 +165,18 @@ const frequencySeverity = (frequency) => {
     if (frequency === 'quarterly') return 'warn';
     return 'secondary';
 };
+
+const flash = computed(() => page.props.flash);
 </script>
 
 <template>
     <Head title="Cargos recurrentes" />
+    <ConfirmPopup />
 
     <AppLayout title="Cargos recurrentes">
         <div class="mx-auto max-w-7xl space-y-6">
+            <Message v-if="flash?.success" severity="success" :closable="true">{{ flash.success }}</Message>
+
             <p class="text-sm text-surface-500">Gastos fijos que se repiten cada mes, trimestre o año. Se proyectan automáticamente en el flujo de caja.</p>
 
             <!-- KPI strip -->
@@ -137,7 +192,7 @@ const frequencySeverity = (frequency) => {
                 <div class="rounded-lg border border-surface-200 bg-white p-4">
                     <p class="text-xs font-semibold uppercase tracking-wider text-surface-500">Cargos activos</p>
                     <p class="mt-1 text-2xl font-bold text-surface-900">
-                        {{ filteredCharges.filter((c) => c.active).length }}
+                        {{ filteredCharges.filter((c) => c.is_active).length }}
                         <span class="text-base font-normal text-surface-400">/ {{ filteredCharges.length }}</span>
                     </p>
                 </div>
@@ -150,7 +205,7 @@ const frequencySeverity = (frequency) => {
                         <InputIcon class="pi pi-search" />
                         <InputText v-model="filterSearch" placeholder="Buscar..." />
                     </IconField>
-                    <Select v-model="filterCategory" :options="categoryOptions" optionLabel="label" optionValue="value" placeholder="Categoría" />
+                    <Select v-model="filterCategoryId" :options="categoryOptionsForFilter" optionLabel="label" optionValue="value" placeholder="Categoría" />
                     <Select v-model="filterStatus" :options="statusOptions" optionLabel="label" optionValue="value" placeholder="Estado" />
                 </div>
                 <Button label="Nuevo cargo" icon="pi pi-plus" @click="openCreate" />
@@ -176,25 +231,30 @@ const frequencySeverity = (frequency) => {
                         </div>
                     </template>
 
-                    <Column field="active" header="" :style="{ width: '40px' }">
+                    <Column field="is_active" header="" :style="{ width: '50px' }">
                         <template #body="{ data }">
-                            <span
-                                v-tooltip="data.active ? 'Activo' : 'Inactivo'"
-                                class="inline-block h-2 w-2 rounded-full"
-                                :class="data.active ? 'bg-emerald-500' : 'bg-surface-300'"
+                            <Button
+                                :icon="data.is_active ? 'pi pi-check-circle' : 'pi pi-circle'"
+                                :severity="data.is_active ? 'success' : 'secondary'"
+                                text
+                                rounded
+                                size="small"
+                                v-tooltip="data.is_active ? 'Activo (clic para desactivar)' : 'Inactivo (clic para activar)'"
+                                @click="toggleCharge(data, $event)"
                             />
                         </template>
                     </Column>
 
-                    <Column field="name" header="Nombre" sortable>
+                    <Column field="label" header="Nombre" sortable>
                         <template #body="{ data }">
-                            <span class="font-medium text-surface-900" :class="{ 'opacity-50': !data.active }">{{ data.name }}</span>
+                            <span class="font-medium text-surface-900" :class="{ 'opacity-50': !data.is_active }">{{ data.label }}</span>
                         </template>
                     </Column>
 
-                    <Column field="category" header="Categoría">
+                    <Column field="category_name" header="Categoría">
                         <template #body="{ data }">
-                            <Tag :value="data.category" severity="secondary" />
+                            <Tag v-if="data.category_name" :value="data.category_name" severity="secondary" />
+                            <span v-else class="text-sm text-surface-400">—</span>
                         </template>
                     </Column>
 
@@ -204,26 +264,23 @@ const frequencySeverity = (frequency) => {
                         </template>
                     </Column>
 
-                    <Column field="dayOfMonth" header="Día" sortable :style="{ width: '70px' }">
+                    <Column field="day_of_month" header="Día" sortable :style="{ width: '70px' }">
                         <template #body="{ data }">
-                            <span class="text-sm text-surface-600">{{ data.dayOfMonth }}</span>
+                            <span class="text-sm text-surface-600">{{ data.day_of_month }}</span>
                         </template>
                     </Column>
 
                     <Column field="amount" header="Importe" sortable>
                         <template #body="{ data }">
-                            <span class="font-semibold tabular-nums text-surface-900" :class="{ 'opacity-50': !data.active }">
+                            <span class="font-semibold tabular-nums text-surface-900" :class="{ 'opacity-50': !data.is_active }">
                                 {{ formatEuros(data.amount) }}
                             </span>
                         </template>
                     </Column>
 
-                    <Column header="Equiv. mensual" sortable :sortField="(row) => monthlyEquivalent(row)">
+                    <Column header="Equiv. mensual">
                         <template #body="{ data }">
-                            <span
-                                class="tabular-nums"
-                                :class="data.frequency === 'monthly' ? 'text-surface-400' : 'text-emerald-700'"
-                            >
+                            <span class="tabular-nums" :class="data.frequency === 'monthly' ? 'text-surface-400' : 'text-emerald-700'">
                                 {{ formatEuros(monthlyEquivalent(data)) }}
                             </span>
                         </template>
@@ -242,7 +299,7 @@ const frequencySeverity = (frequency) => {
             <form class="flex flex-col gap-5" @submit.prevent="save">
                 <div class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">Nombre</label>
-                    <InputText v-model="form.name" placeholder="Ej: Alquiler oficina" fluid />
+                    <InputText v-model="form.label" placeholder="Ej: Alquiler oficina" fluid />
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
@@ -252,7 +309,7 @@ const frequencySeverity = (frequency) => {
                     </div>
                     <div class="flex flex-col gap-2">
                         <label class="text-sm font-medium text-surface-700">Día del mes</label>
-                        <InputNumber v-model="form.dayOfMonth" :min="1" :max="31" fluid />
+                        <InputNumber v-model="form.day_of_month" :min="1" :max="31" fluid />
                     </div>
                 </div>
 
@@ -263,7 +320,12 @@ const frequencySeverity = (frequency) => {
 
                 <div class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">Categoría</label>
-                    <CategorySelect v-model="form.category" :options="categoriesState" @add="addCategory" />
+                    <CategorySelect
+                        v-model="form.category_id"
+                        :options="categoriesState"
+                        type="expense"
+                        @created="addCategoryFromCreate"
+                    />
                 </div>
 
                 <div class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
@@ -271,7 +333,7 @@ const frequencySeverity = (frequency) => {
                         <p class="text-sm font-medium text-surface-700">Activo</p>
                         <p class="text-xs text-surface-500">Se incluye en la previsión y en el flujo de caja</p>
                     </div>
-                    <ToggleSwitch v-model="form.active" />
+                    <ToggleSwitch v-model="form.is_active" />
                 </div>
 
                 <Message v-if="form.frequency !== 'monthly'" severity="info" size="small" variant="simple">
@@ -279,8 +341,9 @@ const frequencySeverity = (frequency) => {
                 </Message>
 
                 <div class="mt-2 flex gap-2">
+                    <Button v-if="editingId" type="button" icon="pi pi-trash" severity="danger" outlined @click="askDelete" />
                     <Button type="button" label="Cancelar" severity="secondary" outlined fluid @click="drawerOpen = false" />
-                    <Button type="submit" :label="editingId ? 'Guardar' : 'Crear'" fluid />
+                    <Button type="submit" :label="editingId ? 'Guardar' : 'Crear'" :loading="saving" fluid />
                 </div>
             </form>
         </Drawer>

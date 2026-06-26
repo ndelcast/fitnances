@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\RecurringChargeController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -51,6 +52,12 @@ Route::middleware('auth')->group(function () use ($categories) {
     Route::delete('/transacciones/{transaction}', [TransactionController::class, 'destroy'])->name('transacciones.destroy');
     Route::patch('/transacciones/{transaction}/realize', [TransactionController::class, 'realize'])->name('transacciones.realize');
 
+    Route::get('/cargos-recurrentes', [RecurringChargeController::class, 'index'])->name('cargos-recurrentes.index');
+    Route::post('/cargos-recurrentes', [RecurringChargeController::class, 'store'])->name('cargos-recurrentes.store');
+    Route::put('/cargos-recurrentes/{cargo}', [RecurringChargeController::class, 'update'])->name('cargos-recurrentes.update');
+    Route::delete('/cargos-recurrentes/{cargo}', [RecurringChargeController::class, 'destroy'])->name('cargos-recurrentes.destroy');
+    Route::patch('/cargos-recurrentes/{cargo}/toggle', [RecurringChargeController::class, 'toggle'])->name('cargos-recurrentes.toggle');
+
     Route::get('/dashboard', function () {
         $today = now();
 
@@ -96,21 +103,6 @@ Route::middleware('auth')->group(function () use ($categories) {
             ],
         ]);
     })->name('dashboard');
-
-    Route::get('/cargos-recurrentes', function () use ($categories) {
-        return Inertia::render('CargosRecurrentes/Index', [
-            'categories' => $categories,
-            'charges' => [
-                ['id' => 1, 'name' => 'Alquiler oficina', 'amount' => 650.00, 'frequency' => 'monthly', 'category' => 'Alquiler oficina', 'dayOfMonth' => 1, 'active' => true],
-                ['id' => 2, 'name' => 'Cuota autónomos', 'amount' => 469.00, 'frequency' => 'monthly', 'category' => 'Cuota autónomos', 'dayOfMonth' => 30, 'active' => true],
-                ['id' => 3, 'name' => 'Adobe Creative Cloud', 'amount' => 60.49, 'frequency' => 'monthly', 'category' => 'Software / suscripciones', 'dayOfMonth' => 15, 'active' => true],
-                ['id' => 4, 'name' => 'Fibra + móvil', 'amount' => 55.00, 'frequency' => 'monthly', 'category' => 'Telefonía e internet', 'dayOfMonth' => 8, 'active' => true],
-                ['id' => 5, 'name' => 'Seguro responsabilidad civil', 'amount' => 285.00, 'frequency' => 'yearly', 'category' => 'Servicios profesionales', 'dayOfMonth' => 1, 'active' => true],
-                ['id' => 6, 'name' => 'Gestoría', 'amount' => 165.00, 'frequency' => 'quarterly', 'category' => 'Honorarios profesionales', 'dayOfMonth' => 5, 'active' => true],
-                ['id' => 7, 'name' => 'GitHub Team', 'amount' => 21.00, 'frequency' => 'monthly', 'category' => 'Software / suscripciones', 'dayOfMonth' => 20, 'active' => false],
-            ],
-        ]);
-    })->name('cargos-recurrentes.index');
 
     Route::get('/perfil-fiscal', function () {
         return Inertia::render('PerfilFiscal/Edit', [

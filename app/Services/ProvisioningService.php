@@ -2,50 +2,77 @@
 
 namespace App\Services;
 
-use App\DTOs\ProvisionBreakdown;
+use App\DTOs\TaxProvisions;
 use App\Models\FinancialProfile;
 use App\Models\Transaction;
 use Illuminate\Support\Collection;
 
 /**
- * Calcule ce qu'un freelance doit mettre de côté (URSSAF / TVA / IR)
- * sur ses encaissements, selon son profil fiscal.
+ * Calcule les provisions fiscales d'un autónomo : IVA (Modelo 303)
+ * et IRPF (Modelo 130, pago fraccionado).
  *
- * Les montants des transactions sont TTC (tels qu'ils touchent le compte).
+ * Conventions :
+ * - les montants des transactions sont TTC (telles qu'elles touchent le compte) ;
+ * - le taux d'IVA et le taux d'IRPF appliqués sont ceux par défaut du profil
+ *   (Phase 3 ajoutera les taux par transaction).
  */
 final class ProvisioningService
 {
+    private const IRPF_PAGO_FRACCIONADO_RATE = 0.20;
+
     /**
      * @param  Collection<int, Transaction>  $incomeTransactions
+     * @param  Collection<int, Transaction>  $expenseTransactions
      */
-    public function forIncome(Collection $incomeTransactions, FinancialProfile $profile): ProvisionBreakdown
-    {
-        $urssafRate = (float) $profile->urssaf_rate / 100;
-        $incomeTaxRate = (float) $profile->income_tax_rate / 100;
-        $vatRate = $profile->collects_vat && $profile->vat_rate !== null
-            ? (float) $profile->vat_rate / 100
-            : 0.0;
+    public function forPeriod(
+        Collection $incomeTransactions,
+        Collection $expenseTransactions,
+        FinancialProfile $profile,
+    ): TaxProvisions {
+        $ivaRate = (float) $profile->iva_default / 100;
+        $irpfRate = (float) $profile->irpf_default / 100;
 
-        $vat = 0;
-        $urssaf = 0;
-        $incomeTax = 0;
+        $ivaCollected = 0;
+        $irpfRetained = 0;
+        $incomeHt = 0;
 
         foreach ($incomeTransactions as $transaction) {
-            $ttc = $transaction->amount;
+            $ttc = (int) $transaction->amount;
+            $ivaPart = $this->extractIva($ttc, $ivaRate);
+            $ht = $ttc - $ivaPart;
 
-            // Part de TVA collectée (à reverser), extraite du TTC.
-            $vatPart = $vatRate > 0
-                ? (int) round($ttc * $vatRate / (1 + $vatRate))
-                : 0;
-
-            // Le chiffre d'affaires HT sert de base à l'URSSAF et à l'IR.
-            $ht = $ttc - $vatPart;
-
-            $vat += $vatPart;
-            $urssaf += (int) round($ht * $urssafRate);
-            $incomeTax += (int) round($ht * $incomeTaxRate);
+            $ivaCollected += $ivaPart;
+            $irpfRetained += (int) round($ht * $irpfRate);
+            $incomeHt += $ht;
         }
 
-        return new ProvisionBreakdown($vat, $urssaf, $incomeTax);
+        $ivaDeductible = 0;
+        $expenseHt = 0;
+
+        foreach ($expenseTransactions as $transaction) {
+            $ttc = (int) $transaction->amount;
+            $ivaPart = $this->extractIva($ttc, $ivaRate);
+
+            $ivaDeductible += $ivaPart;
+            $expenseHt += $ttc - $ivaPart;
+        }
+
+        $ivaOwed = max(0, $ivaCollected - $ivaDeductible);
+
+        // IRPF dû en Modelo 130 = 20 % du rendimiento neto - retenciones déjà appliquées.
+        $netRendimiento = max(0, $incomeHt - $expenseHt);
+        $irpfBase = (int) round($netRendimiento * self::IRPF_PAGO_FRACCIONADO_RATE);
+        $irpfOwed = max(0, $irpfBase - $irpfRetained);
+
+        return new TaxProvisions($ivaOwed, $irpfOwed);
+    }
+
+    private function extractIva(int $ttc, float $rate): int
+    {
+        if ($rate <= 0) {
+            return 0;
+        }
+
+        return (int) round($ttc * $rate / (1 + $rate));
     }
 }

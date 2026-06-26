@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\DTOs\ProvisionBreakdown;
 use App\DTOs\TreasurySnapshot;
 use App\Models\User;
 use App\Support\RecurringChargeProjector;
@@ -10,7 +9,7 @@ use Carbon\CarbonImmutable;
 
 /**
  * Orchestre les calculs de trésorerie pour produire la photographie
- * d'un freelance, dont le chiffre unique : « tu peux te verser X€ ce mois-ci ».
+ * d'un autónomo, dont le chiffre unique : « este mes puedes retirar X € ».
  */
 final class TreasuryService
 {
@@ -27,10 +26,10 @@ final class TreasuryService
         $cash = $this->forecast->currentCash($user);
 
         $income = $user->transactions()->income()->get();
-        $provisions = $this->provisioning->forIncome($income, $profile);
+        $expense = $user->transactions()->expense()->get();
+        $provisions = $this->provisioning->forPeriod($income, $expense, $profile);
 
         $available = $cash - $provisions->total();
-
         $withdrawable = $available - $this->remainingChargesThisMonth($user);
 
         return new TreasurySnapshot(

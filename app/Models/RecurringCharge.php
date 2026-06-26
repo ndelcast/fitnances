@@ -19,6 +19,7 @@ class RecurringCharge extends Model
         'label',
         'amount',
         'frequency',
+        'day_of_month',
         'next_due_on',
         'is_active',
     ];
@@ -28,6 +29,7 @@ class RecurringCharge extends Model
         return [
             'frequency' => ChargeFrequency::class,
             'amount' => 'integer',
+            'day_of_month' => 'integer',
             'next_due_on' => 'date',
             'is_active' => 'boolean',
         ];

@@ -37,32 +37,35 @@ class TreasuryServiceTest extends TestCase
     {
         $user = User::factory()->create();
         FinancialProfile::factory()->for($user)->create([
-            'urssaf_rate' => 22,
-            'collects_vat' => false,
-            'income_tax_rate' => 0,
+            'iva_default' => 21,
+            'irpf_default' => 0,
         ]);
 
-        // 4000 € encaissés, 500 € de charges → cash = 3500 €.
-        Transaction::factory()->income()->for($user)->create(['amount' => 400000]);
+        // 1210 € TTC encaissés (210 € IVA, 1000 € HT), 500 € de charges.
+        Transaction::factory()->income()->for($user)->create(['amount' => 121000]);
         Transaction::factory()->expense()->for($user)->create(['amount' => 50000]);
 
         $snapshot = app(TreasuryService::class)->snapshot($user);
 
-        $this->assertSame(350000, $snapshot->cash);
-        $this->assertSame(88000, $snapshot->provisions->urssaf); // 22% de 4000 €
-        $this->assertSame(262000, $snapshot->available); // 3500 € - 880 €
+        $this->assertSame(71000, $snapshot->cash);
+        // IVA dû = 21 000 ct collecté - 8 678 ct déductible (21 % de 500 € TTC).
+        $this->assertSame(12322, $snapshot->provisions->iva);
+        // Modelo 130 = 20 % de (100 000 - 41 322) ct de rendimiento neto.
+        $this->assertSame(11736, $snapshot->provisions->irpf);
+        $this->assertSame(71000 - 12322 - 11736, $snapshot->available);
     }
 
     public function test_withdrawable_retire_les_charges_restantes_du_mois(): void
     {
         $user = User::factory()->create();
         FinancialProfile::factory()->for($user)->create([
-            'urssaf_rate' => 0, // isole l'effet des charges
-            'collects_vat' => false,
-            'income_tax_rate' => 0,
+            'iva_default' => 0, // isole l'effet des charges (pas d'IVA)
+            'irpf_default' => 0,
         ]);
 
-        Transaction::factory()->income()->for($user)->create(['amount' => 200000]); // 2000 €
+        // Income = expense → rendimiento neto = 0 → Modelo 130 = 0.
+        Transaction::factory()->income()->for($user)->create(['amount' => 200000]); // 2 000 €
+        Transaction::factory()->expense()->for($user)->create(['amount' => 200000]); // 2 000 €
 
         // Charge mensuelle de 800 € due dans 2 jours (donc ce mois-ci).
         RecurringCharge::factory()->for($user)->create([
@@ -73,8 +76,9 @@ class TreasuryServiceTest extends TestCase
 
         $snapshot = app(TreasuryService::class)->snapshot($user);
 
-        $this->assertSame(200000, $snapshot->available);
-        $this->assertSame(120000, $snapshot->withdrawableThisMonth); // 2000 € - 800 €
+        $this->assertSame(0, $snapshot->cash); // 2 000 € - 2 000 €
+        $this->assertSame(0, $snapshot->provisions->total());
+        $this->assertSame(-80000, $snapshot->withdrawableThisMonth); // 0 - 800 € de charges
     }
 
     public function test_previsionnel_90_jours(): void
@@ -87,7 +91,7 @@ class TreasuryServiceTest extends TestCase
             'amount' => 300000,
             'expected_on' => CarbonImmutable::today()->addDays(30),
         ]);
-        // Facture hors fenêtre 90j : ne doit pas compter.
+        // Facture hors fenêtre 90 j : ne doit pas compter.
         ExpectedIncome::factory()->for($user)->create([
             'amount' => 999999,
             'expected_on' => CarbonImmutable::today()->addDays(200),

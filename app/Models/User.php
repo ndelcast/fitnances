@@ -79,4 +79,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(ExpectedIncome::class);
     }
+
+    public function cashFlowPlans(): HasMany
+    {
+        return $this->hasMany(CashFlowPlan::class);
+    }
 }

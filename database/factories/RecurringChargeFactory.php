@@ -19,6 +19,7 @@ class RecurringChargeFactory extends Factory
             'label' => fake()->randomElement(['Loyer bureau', 'Logiciel SaaS', 'Assurance RC Pro', 'Comptable', 'Téléphone']),
             'amount' => fake()->numberBetween(10_00, 1_500_00),
             'frequency' => fake()->randomElement(ChargeFrequency::cases()),
+            'day_of_month' => fake()->numberBetween(1, 28),
             'next_due_on' => fake()->dateTimeBetween('now', '+1 month'),
             'is_active' => true,
         ];

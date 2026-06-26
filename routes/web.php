@@ -90,16 +90,23 @@ Route::middleware('auth')->group(function () use ($categories) {
         return Inertia::render('Transacciones/Index', [
             'categories' => $categories,
             'transactions' => [
-                ['id' => 1, 'date' => '2026-06-22', 'description' => 'Factura Acme S.L.', 'category' => 'Servicios profesionales', 'amount' => 3200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income'],
-                ['id' => 2, 'date' => '2026-06-20', 'description' => 'Alquiler oficina junio', 'category' => 'Alquiler oficina', 'amount' => 650.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 3, 'date' => '2026-06-19', 'description' => 'Adobe Creative Cloud', 'category' => 'Software / suscripciones', 'amount' => 60.49, 'iva' => 21, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 4, 'date' => '2026-06-15', 'description' => 'Cuota autónomos junio', 'category' => 'Cuota autónomos', 'amount' => 469.00, 'iva' => 0, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 5, 'date' => '2026-06-12', 'description' => 'Factura Globex Corp.', 'category' => 'Servicios profesionales', 'amount' => 1800.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income'],
-                ['id' => 6, 'date' => '2026-06-10', 'description' => 'Factura luz oficina', 'category' => 'Suministros', 'amount' => 84.30, 'iva' => 21, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 7, 'date' => '2026-06-08', 'description' => 'Fibra + móvil', 'category' => 'Telefonía e internet', 'amount' => 55.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 8, 'date' => '2026-06-05', 'description' => 'Curso online Vue', 'category' => 'Formación', 'amount' => 199.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 9, 'date' => '2026-06-03', 'description' => 'Comida cliente Acme', 'category' => 'Comidas y viajes', 'amount' => 42.50, 'iva' => 10, 'irpf' => 0, 'type' => 'expense'],
-                ['id' => 10, 'date' => '2026-06-01', 'description' => 'Factura InitTech', 'category' => 'Servicios profesionales', 'amount' => 950.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income'],
+                // Realizado (pasado)
+                ['id' => 1, 'date' => '2026-06-22', 'description' => 'Factura Acme S.L.', 'category' => 'Servicios profesionales', 'amount' => 3200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'realizado'],
+                ['id' => 2, 'date' => '2026-06-20', 'description' => 'Alquiler oficina junio', 'category' => 'Alquiler oficina', 'amount' => 650.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 3, 'date' => '2026-06-19', 'description' => 'Adobe Creative Cloud', 'category' => 'Software / suscripciones', 'amount' => 60.49, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 4, 'date' => '2026-06-15', 'description' => 'Cuota autónomos junio', 'category' => 'Cuota autónomos', 'amount' => 469.00, 'iva' => 0, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 5, 'date' => '2026-06-12', 'description' => 'Factura Globex Corp.', 'category' => 'Servicios profesionales', 'amount' => 1800.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'realizado'],
+                ['id' => 6, 'date' => '2026-06-10', 'description' => 'Factura luz oficina', 'category' => 'Suministros', 'amount' => 84.30, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 7, 'date' => '2026-06-08', 'description' => 'Fibra + móvil', 'category' => 'Telefonía e internet', 'amount' => 55.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 8, 'date' => '2026-06-05', 'description' => 'Curso online Vue', 'category' => 'Formación', 'amount' => 199.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 9, 'date' => '2026-06-03', 'description' => 'Comida cliente Acme', 'category' => 'Comidas y viajes', 'amount' => 42.50, 'iva' => 10, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
+                ['id' => 10, 'date' => '2026-06-01', 'description' => 'Factura InitTech', 'category' => 'Servicios profesionales', 'amount' => 950.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'realizado'],
+                // Previsto (futuro)
+                ['id' => 11, 'date' => '2026-07-05', 'description' => 'Factura Acme S.L. — Hito 2', 'category' => 'Servicios profesionales', 'amount' => 3200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
+                ['id' => 12, 'date' => '2026-07-15', 'description' => 'Factura Globex Corp.', 'category' => 'Servicios profesionales', 'amount' => 1800.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
+                ['id' => 13, 'date' => '2026-07-20', 'description' => 'Factura InitTech', 'category' => 'Servicios profesionales', 'amount' => 950.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
+                ['id' => 14, 'date' => '2026-08-01', 'description' => 'Factura Stark Industries — Pendiente firma', 'category' => 'Servicios profesionales', 'amount' => 4200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
+                ['id' => 15, 'date' => '2026-08-10', 'description' => 'Factura Berlin GmbH (UE intracomunitaria)', 'category' => 'Servicios profesionales', 'amount' => 2500.00, 'iva' => 0, 'irpf' => 0, 'type' => 'income', 'status' => 'previsto'],
             ],
         ]);
     })->name('transacciones.index');
@@ -118,19 +125,6 @@ Route::middleware('auth')->group(function () use ($categories) {
             ],
         ]);
     })->name('cargos-recurrentes.index');
-
-    Route::get('/ingresos-previstos', function () {
-        return Inertia::render('IngresosPrevistos/Index', [
-            'incomes' => [
-                ['id' => 1, 'client' => 'Acme S.L.', 'baseAmount' => 3200.00, 'iva' => 21, 'irpf' => 15, 'netAmount' => 3392.00, 'expectedDate' => '2026-07-05', 'status' => 'invoiced', 'notes' => 'Hito 2 proyecto'],
-                ['id' => 2, 'client' => 'Globex Corp.', 'baseAmount' => 1800.00, 'iva' => 21, 'irpf' => 15, 'netAmount' => 1908.00, 'expectedDate' => '2026-07-15', 'status' => 'pending', 'notes' => ''],
-                ['id' => 3, 'client' => 'InitTech', 'baseAmount' => 950.00, 'iva' => 21, 'irpf' => 15, 'netAmount' => 1007.00, 'expectedDate' => '2026-07-20', 'status' => 'pending', 'notes' => ''],
-                ['id' => 4, 'client' => 'Stark Industries', 'baseAmount' => 4200.00, 'iva' => 21, 'irpf' => 15, 'netAmount' => 4452.00, 'expectedDate' => '2026-08-01', 'status' => 'pending', 'notes' => 'Pendiente firma contrato'],
-                ['id' => 5, 'client' => 'Cliente UE Berlin GmbH', 'baseAmount' => 2500.00, 'iva' => 0, 'irpf' => 0, 'netAmount' => 2500.00, 'expectedDate' => '2026-08-10', 'status' => 'invoiced', 'notes' => 'Operación intracomunitaria'],
-                ['id' => 6, 'client' => 'Acme S.L.', 'baseAmount' => 1500.00, 'iva' => 21, 'irpf' => 15, 'netAmount' => 1590.00, 'expectedDate' => '2026-06-15', 'status' => 'collected', 'notes' => 'Hito 1'],
-            ],
-        ]);
-    })->name('ingresos-previstos.index');
 
     Route::get('/perfil-fiscal', function () {
         return Inertia::render('PerfilFiscal/Edit', [

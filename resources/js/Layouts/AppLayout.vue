@@ -18,7 +18,6 @@ const nav = [
     { label: 'Flujo de caja', icon: 'pi pi-table', href: '/flujo-caja', match: ['/flujo-caja'] },
     { label: 'Transacciones', icon: 'pi pi-arrow-right-arrow-left', href: '/transacciones', match: ['/transacciones'] },
     { label: 'Cargos recurrentes', icon: 'pi pi-replay', href: '/cargos-recurrentes', match: ['/cargos-recurrentes'] },
-    { label: 'Ingresos previstos', icon: 'pi pi-inbox', href: '/ingresos-previstos', match: ['/ingresos-previstos'] },
     { label: 'Perfil fiscal', icon: 'pi pi-id-card', href: '/perfil-fiscal', match: ['/perfil-fiscal'] },
 ];
 

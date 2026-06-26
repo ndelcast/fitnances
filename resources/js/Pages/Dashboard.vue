@@ -151,8 +151,8 @@ const deadlineSeverity = (daysLeft) => {
                         <Link href="/transacciones">
                             <Button label="Añadir transacción" icon="pi pi-plus" size="small" />
                         </Link>
-                        <Link href="/ingresos-previstos">
-                            <Button label="Ver ingresos previstos" icon="pi pi-inbox" severity="secondary" size="small" />
+                        <Link href="/transacciones?status=previsto">
+                            <Button label="Ver previstos" icon="pi pi-clock" severity="secondary" size="small" />
                         </Link>
                     </div>
                 </template>

@@ -32,7 +32,7 @@ class RecurringChargeControllerTest extends TestCase
         $user = User::factory()->create();
         RecurringCharge::factory()->for($user)->create(['label' => 'Alquiler', 'amount' => 65000]);
 
-        $this->actingAs($user)->get('/cargos-recurrentes')
+        $this->actingAs($user)->get('/recurring-charges')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('CargosRecurrentes/Index')
@@ -47,7 +47,7 @@ class RecurringChargeControllerTest extends TestCase
         $user = User::factory()->create();
         $category = Category::factory()->expense()->for($user)->create();
 
-        $this->actingAs($user)->post('/cargos-recurrentes', [
+        $this->actingAs($user)->post('/recurring-charges', [
             'label' => 'Coworking',
             'amount' => 290.00,
             'frequency' => 'monthly',
@@ -67,7 +67,7 @@ class RecurringChargeControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->post('/cargos-recurrentes', [
+        $this->actingAs($user)->post('/recurring-charges', [
             'label' => 'Internet',
             'amount' => 50,
             'frequency' => 'monthly',
@@ -87,7 +87,7 @@ class RecurringChargeControllerTest extends TestCase
             'next_due_on' => '2026-07-01',
         ]);
 
-        $this->actingAs($user)->put("/cargos-recurrentes/{$charge->id}", [
+        $this->actingAs($user)->put("/recurring-charges/{$charge->id}", [
             'label' => 'Renamed',
             'amount' => 100,
             'frequency' => 'monthly',
@@ -102,7 +102,7 @@ class RecurringChargeControllerTest extends TestCase
         $user = User::factory()->create();
         $charge = RecurringCharge::factory()->for($user)->create(['is_active' => true]);
 
-        $this->actingAs($user)->patch("/cargos-recurrentes/{$charge->id}/toggle")->assertRedirect();
+        $this->actingAs($user)->patch("/recurring-charges/{$charge->id}/toggle")->assertRedirect();
 
         $this->assertFalse($charge->fresh()->is_active);
     }
@@ -112,7 +112,7 @@ class RecurringChargeControllerTest extends TestCase
         $user = User::factory()->create();
         $charge = RecurringCharge::factory()->for($user)->create();
 
-        $this->actingAs($user)->delete("/cargos-recurrentes/{$charge->id}")->assertRedirect();
+        $this->actingAs($user)->delete("/recurring-charges/{$charge->id}")->assertRedirect();
 
         $this->assertDatabaseMissing('recurring_charges', ['id' => $charge->id]);
     }
@@ -123,6 +123,6 @@ class RecurringChargeControllerTest extends TestCase
         $bob = User::factory()->create();
         $charge = RecurringCharge::factory()->for($alice)->create();
 
-        $this->actingAs($bob)->delete("/cargos-recurrentes/{$charge->id}")->assertForbidden();
+        $this->actingAs($bob)->delete("/recurring-charges/{$charge->id}")->assertForbidden();
     }
 }

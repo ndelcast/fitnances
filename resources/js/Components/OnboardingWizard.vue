@@ -81,7 +81,7 @@ const back = () => currentStep.value--;
 const finish = () => {
     finishing.value = true;
     router.post(
-        '/asistente',
+        '/onboarding',
         {
             annualRevenue: data.value.annualRevenue,
             cuotaMonthly: data.value.cuotaMonthly,

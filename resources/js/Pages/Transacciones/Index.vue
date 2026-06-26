@@ -13,6 +13,7 @@ import Dialog from 'primevue/dialog';
 import InputNumber from 'primevue/inputnumber';
 import DatePicker from 'primevue/datepicker';
 import SelectButton from 'primevue/selectbutton';
+import ToggleSwitch from 'primevue/toggleswitch';
 import Message from 'primevue/message';
 import ConfirmPopup from 'primevue/confirmpopup';
 import { useConfirm } from 'primevue/useconfirm';
@@ -113,6 +114,7 @@ function emptyForm() {
         category_id: null,
         occurred_on: new Date(),
         amount: null,
+        has_iva: true,
         iva_rate: 21,
         irpf_rate: 0,
     };
@@ -150,7 +152,8 @@ const openEdit = (row) => {
         category_id: row.category_id,
         occurred_on: new Date(row.occurred_on),
         amount: row.amount,
-        iva_rate: row.iva_rate ?? 21,
+        has_iva: row.iva_rate != null && row.iva_rate > 0,
+        iva_rate: row.iva_rate && row.iva_rate > 0 ? row.iva_rate : 21,
         irpf_rate: row.irpf_rate ?? 0,
     };
     drawerOpen.value = true;
@@ -161,7 +164,7 @@ const buildPayload = () => ({
     label: form.value.label,
     category_id: form.value.category_id,
     amount: form.value.amount,
-    iva_rate: form.value.iva_rate,
+    iva_rate: form.value.has_iva ? form.value.iva_rate : 0,
     irpf_rate: form.value.irpf_rate,
     occurred_on:
         form.value.occurred_on instanceof Date
@@ -183,15 +186,15 @@ const save = () => {
     };
 
     if (editingId.value) {
-        router.put(`/transacciones/${editingId.value}`, payload, options);
+        router.put(`/transactions/${editingId.value}`, payload, options);
     } else {
-        router.post('/transacciones', payload, options);
+        router.post('/transactions', payload, options);
     }
 };
 
 const markAsRealizado = (row, event) => {
     event.stopPropagation();
-    router.patch(`/transacciones/${row.id}/realize`, {}, { preserveScroll: true });
+    router.patch(`/transactions/${row.id}/realize`, {}, { preserveScroll: true });
 };
 
 const askDelete = (event) => {
@@ -205,7 +208,7 @@ const askDelete = (event) => {
         acceptClass: 'p-button-danger',
         accept: () => {
             const id = editingId.value;
-            router.delete(`/transacciones/${id}`, {
+            router.delete(`/transactions/${id}`, {
                 preserveScroll: true,
                 onSuccess: () => {
                     drawerOpen.value = false;
@@ -276,7 +279,7 @@ const flash = computed(() => page.props.flash);
                     paginator
                     stripedRows
                     rowHover
-                    @row-click="(e) => openEdit(e.data)"
+                    @row-click="(e) => !e.data.is_planned && openEdit(e.data)"
                 >
                     <template #empty>
                         <div class="py-8 text-center text-sm text-surface-500">
@@ -300,6 +303,14 @@ const flash = computed(() => page.props.flash);
                     <Column field="label" header="Descripción">
                         <template #body="{ data }">
                             <span class="font-medium text-surface-900">{{ data.label }}</span>
+                            <span
+                                v-if="data.is_planned"
+                                v-tooltip="'Generada desde Flujo de caja — editable desde allí.'"
+                                class="ml-2 inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 ring-1 ring-violet-200"
+                            >
+                                <i class="pi pi-table text-[9px]" />
+                                Plan
+                            </span>
                         </template>
                     </Column>
 
@@ -334,7 +345,7 @@ const flash = computed(() => page.props.flash);
                     <Column :style="{ width: '60px' }">
                         <template #body="{ data }">
                             <Button
-                                v-if="data.status === 'previsto'"
+                                v-if="data.status === 'previsto' && !data.is_planned"
                                 icon="pi pi-check"
                                 size="small"
                                 severity="success"
@@ -403,8 +414,26 @@ const flash = computed(() => page.props.flash);
                 </div>
 
                 <div class="flex flex-col gap-2">
-                    <label class="text-sm font-medium text-surface-700">IVA</label>
-                    <Select v-model="form.iva_rate" :options="ivaOptions" optionLabel="label" optionValue="value" fluid />
+                    <div class="flex items-center justify-between rounded-lg border border-surface-200 px-3 py-2">
+                        <div>
+                            <p class="text-sm font-medium text-surface-700">Con IVA</p>
+                            <p class="text-xs text-surface-500">
+                                {{ form.type === 'income'
+                                    ? 'Desactivar si facturas sin IVA (UE intracomunitario, exento).'
+                                    : 'Desactivar si el proveedor no factura con IVA.' }}
+                            </p>
+                        </div>
+                        <ToggleSwitch v-model="form.has_iva" />
+                    </div>
+                    <Select
+                        v-if="form.has_iva"
+                        v-model="form.iva_rate"
+                        :options="ivaOptions.filter((o) => o.value > 0)"
+                        optionLabel="label"
+                        optionValue="value"
+                        placeholder="Tipo de IVA"
+                        fluid
+                    />
                 </div>
 
                 <div v-if="form.type === 'income'" class="flex flex-col gap-2">

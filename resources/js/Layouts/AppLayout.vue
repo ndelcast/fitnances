@@ -17,14 +17,14 @@ const user = computed(() => page.props.auth?.user ?? { name: 'Usuario' });
 
 const nav = [
     { label: 'Resumen', icon: 'pi pi-chart-line', href: '/dashboard', match: ['/dashboard'] },
-    { label: 'Flujo de caja', icon: 'pi pi-table', href: '/flujo-caja', match: ['/flujo-caja'] },
-    { label: 'Transacciones', icon: 'pi pi-arrow-right-arrow-left', href: '/transacciones', match: ['/transacciones'] },
-    { label: 'Cargos recurrentes', icon: 'pi pi-replay', href: '/cargos-recurrentes', match: ['/cargos-recurrentes'] },
-    { label: 'Perfil fiscal', icon: 'pi pi-id-card', href: '/perfil-fiscal', match: ['/perfil-fiscal'] },
+    { label: 'Flujo de caja', icon: 'pi pi-table', href: '/cash-flow', match: ['/cash-flow'] },
+    { label: 'Transacciones', icon: 'pi pi-arrow-right-arrow-left', href: '/transactions', match: ['/transactions'] },
+    { label: 'Cargos recurrentes', icon: 'pi pi-replay', href: '/recurring-charges', match: ['/recurring-charges'] },
+    { label: 'Perfil fiscal', icon: 'pi pi-id-card', href: '/fiscal-profile', match: ['/fiscal-profile'] },
 ];
 
 const secondaryNav = [
-    { label: 'Asistente anual', icon: 'pi pi-sparkles', href: '/asistente', match: ['/asistente'] },
+    { label: 'Asistente anual', icon: 'pi pi-sparkles', href: '/onboarding', match: ['/onboarding'] },
 ];
 
 const currentPath = computed(() => page.url.split('?')[0]);
@@ -45,7 +45,7 @@ const userMenuItems = [
     {
         label: 'Mi cuenta',
         icon: 'pi pi-user',
-        command: () => router.visit('/perfil-fiscal'),
+        command: () => router.visit('/fiscal-profile'),
     },
     {
         separator: true,
@@ -62,11 +62,11 @@ const toggleUserMenu = (event) => userMenu.value.toggle(event);
 const mobileOpen = ref(false);
 
 // Onboarding modal : s'auto-ouvre tant que le profil n'a pas été initialisé,
-// sauf sur la page Asistente elle-même (qui a déjà le wizard inline).
+// sauf sur la page onboarding elle-même (qui a déjà le wizard inline).
 const needsOnboarding = computed(() => page.props.auth?.needsOnboarding === true);
-const onAsistentePage = computed(() => currentPath.value === '/asistente');
+const onOnboardingPage = computed(() => currentPath.value === '/onboarding');
 const onboardingOpen = computed({
-    get: () => needsOnboarding.value && !onAsistentePage.value,
+    get: () => needsOnboarding.value && !onOnboardingPage.value,
     set: () => {},
 });
 </script>

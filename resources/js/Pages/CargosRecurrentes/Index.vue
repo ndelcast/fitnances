@@ -128,15 +128,15 @@ const save = () => {
     };
 
     if (editingId.value) {
-        router.put(`/cargos-recurrentes/${editingId.value}`, payload, options);
+        router.put(`/recurring-charges/${editingId.value}`, payload, options);
     } else {
-        router.post('/cargos-recurrentes', payload, options);
+        router.post('/recurring-charges', payload, options);
     }
 };
 
 const toggleCharge = (charge, event) => {
     event.stopPropagation();
-    router.patch(`/cargos-recurrentes/${charge.id}/toggle`, {}, { preserveScroll: true });
+    router.patch(`/recurring-charges/${charge.id}/toggle`, {}, { preserveScroll: true });
 };
 
 const askDelete = (event) => {
@@ -150,7 +150,7 @@ const askDelete = (event) => {
         acceptClass: 'p-button-danger',
         accept: () => {
             const id = editingId.value;
-            router.delete(`/cargos-recurrentes/${id}`, {
+            router.delete(`/recurring-charges/${id}`, {
                 preserveScroll: true,
                 onSuccess: () => {
                     drawerOpen.value = false;

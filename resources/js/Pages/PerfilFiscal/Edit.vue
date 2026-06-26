@@ -64,7 +64,7 @@ const flash = computed(() => page.props.flash);
 
 const save = () => {
     saving.value = true;
-    router.put('/perfil-fiscal', form.value, {
+    router.put('/fiscal-profile', form.value, {
         preserveScroll: true,
         onFinish: () => {
             saving.value = false;

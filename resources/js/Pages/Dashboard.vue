@@ -148,10 +148,10 @@ const deadlineSeverity = (daysLeft) => {
                     </div>
 
                     <div class="mt-6 flex flex-wrap gap-2">
-                        <Link href="/transacciones">
+                        <Link href="/transactions">
                             <Button label="Añadir transacción" icon="pi pi-plus" size="small" />
                         </Link>
-                        <Link href="/transacciones?status=previsto">
+                        <Link href="/transactions?status=previsto">
                             <Button label="Ver previstos" icon="pi pi-clock" severity="secondary" size="small" />
                         </Link>
                     </div>

@@ -31,7 +31,7 @@ class CashFlowControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->get('/flujo-caja')
+        $this->actingAs($user)->get('/cash-flow')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('FlujoCaja/Index')
@@ -56,7 +56,7 @@ class CashFlowControllerTest extends TestCase
             'frequency' => ChargeFrequency::Monthly,
         ]);
 
-        $this->actingAs($user)->get('/flujo-caja')
+        $this->actingAs($user)->get('/cash-flow')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('salary.monthly.0', 2200)
@@ -69,7 +69,7 @@ class CashFlowControllerTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->get('/flujo-caja?year=2027')
+        $this->actingAs($user)->get('/cash-flow?year=2027')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page->where('year', 2027));
     }
@@ -111,7 +111,7 @@ class CashFlowControllerTest extends TestCase
         ];
 
         $this->actingAs($user)
-            ->put('/flujo-caja/2026', $payload)
+            ->put('/cash-flow/2026', $payload)
             ->assertRedirect();
 
         $plan->refresh();
@@ -131,7 +131,7 @@ class CashFlowControllerTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user)
-            ->put('/flujo-caja/2030', ['startingBalance' => 0])
+            ->put('/cash-flow/2030', ['startingBalance' => 0])
             ->assertNotFound();
     }
 
@@ -142,7 +142,7 @@ class CashFlowControllerTest extends TestCase
         $alice->cashFlowPlans()->create(['year' => 2026]);
 
         $this->actingAs($bob)
-            ->put('/flujo-caja/2026', ['startingBalance' => 0])
+            ->put('/cash-flow/2026', ['startingBalance' => 0])
             ->assertNotFound();
     }
 }

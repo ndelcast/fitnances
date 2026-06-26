@@ -9,6 +9,7 @@ use App\Models\FinancialProfile;
 use App\Models\RecurringCharge;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\CashFlowPlanService;
 use App\Support\CreateDefaultCategories;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -36,6 +37,7 @@ class DemoSeeder extends Seeder
                 'iva_default' => 21,
                 'irpf_default' => 15,
                 'cuota_monthly' => 46900,
+                'monthly_salary' => 220000,
                 'surcharge_equivalence' => false,
                 'intra_community' => true,
                 'currency' => 'EUR',
@@ -119,5 +121,8 @@ class DemoSeeder extends Seeder
             'amount' => 420000,
             'expected_on' => $today->addDays(55),
         ]);
+
+        // Plan de tesorería pour l'année en cours (peuplé via le service).
+        app(CashFlowPlanService::class)->forYear($user->fresh(), $today->year);
     }
 }

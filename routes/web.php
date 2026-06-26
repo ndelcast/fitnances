@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -43,6 +44,12 @@ Route::middleware('auth')->group(function () use ($categories) {
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
     Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
+
+    Route::get('/transacciones', [TransactionController::class, 'index'])->name('transacciones.index');
+    Route::post('/transacciones', [TransactionController::class, 'store'])->name('transacciones.store');
+    Route::put('/transacciones/{transaction}', [TransactionController::class, 'update'])->name('transacciones.update');
+    Route::delete('/transacciones/{transaction}', [TransactionController::class, 'destroy'])->name('transacciones.destroy');
+    Route::patch('/transacciones/{transaction}/realize', [TransactionController::class, 'realize'])->name('transacciones.realize');
 
     Route::get('/dashboard', function () {
         $today = now();
@@ -89,31 +96,6 @@ Route::middleware('auth')->group(function () use ($categories) {
             ],
         ]);
     })->name('dashboard');
-
-    Route::get('/transacciones', function () use ($categories) {
-        return Inertia::render('Transacciones/Index', [
-            'categories' => $categories,
-            'transactions' => [
-                // Realizado (pasado)
-                ['id' => 1, 'date' => '2026-06-22', 'description' => 'Factura Acme S.L.', 'category' => 'Servicios profesionales', 'amount' => 3200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'realizado'],
-                ['id' => 2, 'date' => '2026-06-20', 'description' => 'Alquiler oficina junio', 'category' => 'Alquiler oficina', 'amount' => 650.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 3, 'date' => '2026-06-19', 'description' => 'Adobe Creative Cloud', 'category' => 'Software / suscripciones', 'amount' => 60.49, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 4, 'date' => '2026-06-15', 'description' => 'Cuota autónomos junio', 'category' => 'Cuota autónomos', 'amount' => 469.00, 'iva' => 0, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 5, 'date' => '2026-06-12', 'description' => 'Factura Globex Corp.', 'category' => 'Servicios profesionales', 'amount' => 1800.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'realizado'],
-                ['id' => 6, 'date' => '2026-06-10', 'description' => 'Factura luz oficina', 'category' => 'Suministros', 'amount' => 84.30, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 7, 'date' => '2026-06-08', 'description' => 'Fibra + móvil', 'category' => 'Telefonía e internet', 'amount' => 55.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 8, 'date' => '2026-06-05', 'description' => 'Curso online Vue', 'category' => 'Formación', 'amount' => 199.00, 'iva' => 21, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 9, 'date' => '2026-06-03', 'description' => 'Comida cliente Acme', 'category' => 'Comidas y viajes', 'amount' => 42.50, 'iva' => 10, 'irpf' => 0, 'type' => 'expense', 'status' => 'realizado'],
-                ['id' => 10, 'date' => '2026-06-01', 'description' => 'Factura InitTech', 'category' => 'Servicios profesionales', 'amount' => 950.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'realizado'],
-                // Previsto (futuro)
-                ['id' => 11, 'date' => '2026-07-05', 'description' => 'Factura Acme S.L. — Hito 2', 'category' => 'Servicios profesionales', 'amount' => 3200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
-                ['id' => 12, 'date' => '2026-07-15', 'description' => 'Factura Globex Corp.', 'category' => 'Servicios profesionales', 'amount' => 1800.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
-                ['id' => 13, 'date' => '2026-07-20', 'description' => 'Factura InitTech', 'category' => 'Servicios profesionales', 'amount' => 950.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
-                ['id' => 14, 'date' => '2026-08-01', 'description' => 'Factura Stark Industries — Pendiente firma', 'category' => 'Servicios profesionales', 'amount' => 4200.00, 'iva' => 21, 'irpf' => 15, 'type' => 'income', 'status' => 'previsto'],
-                ['id' => 15, 'date' => '2026-08-10', 'description' => 'Factura Berlin GmbH (UE intracomunitaria)', 'category' => 'Servicios profesionales', 'amount' => 2500.00, 'iva' => 0, 'irpf' => 0, 'type' => 'income', 'status' => 'previsto'],
-            ],
-        ]);
-    })->name('transacciones.index');
 
     Route::get('/cargos-recurrentes', function () use ($categories) {
         return Inertia::render('CargosRecurrentes/Index', [

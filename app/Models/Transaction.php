@@ -19,6 +19,8 @@ class Transaction extends Model
         'category_id',
         'type',
         'amount',
+        'iva_rate',
+        'irpf_rate',
         'label',
         'occurred_on',
         'source',
@@ -30,6 +32,8 @@ class Transaction extends Model
             'type' => TransactionType::class,
             'source' => TransactionSource::class,
             'amount' => 'integer',
+            'iva_rate' => 'decimal:2',
+            'irpf_rate' => 'decimal:2',
             'occurred_on' => 'date',
         ];
     }

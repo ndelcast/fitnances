@@ -54,15 +54,28 @@ class DemoSeeder extends Seeder
             Transaction::factory()->income()->for($user)->create([
                 'category_id' => $servicios->id,
                 'amount' => 320000,
+                'iva_rate' => 21,
+                'irpf_rate' => 15,
                 'label' => 'Factura Acme S.L.',
                 'occurred_on' => $today->subMonthsNoOverflow($monthsAgo)->subDays(3),
             ]);
         }
 
+        // Factura prevista à 30 jours (income futur).
+        Transaction::factory()->income()->for($user)->create([
+            'category_id' => $servicios->id,
+            'amount' => 180000,
+            'iva_rate' => 21,
+            'irpf_rate' => 15,
+            'label' => 'Factura Globex Corp.',
+            'occurred_on' => $today->addDays(20),
+        ]);
+
         // Charge ponctuelle passée.
         Transaction::factory()->expense()->for($user)->create([
             'category_id' => $software->id,
             'amount' => 6049,
+            'iva_rate' => 21,
             'label' => 'Adobe Creative Cloud',
             'occurred_on' => $today->subDays(7),
         ]);

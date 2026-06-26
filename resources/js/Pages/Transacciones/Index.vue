@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, reactive, watch } from 'vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import Button from 'primevue/button';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -14,20 +14,25 @@ import InputNumber from 'primevue/inputnumber';
 import DatePicker from 'primevue/datepicker';
 import SelectButton from 'primevue/selectbutton';
 import Message from 'primevue/message';
+import ConfirmPopup from 'primevue/confirmpopup';
+import { useConfirm } from 'primevue/useconfirm';
 import AppLayout from '@/Layouts/AppLayout.vue';
 import CategorySelect from '@/Components/CategorySelect.vue';
 import { formatEuros, formatShortDate } from '@/lib/format';
 
 const props = defineProps({
     transactions: { type: Array, required: true },
-    categories: { type: Array, required: true },
+    categories: { type: Array, required: true }, // [{ id, name, type }]
 });
 
-const transactionsState = reactive(props.transactions.map((t) => ({ ...t })));
+const page = usePage();
+const confirm = useConfirm();
 
 const categoriesState = reactive([...props.categories]);
-const addCategory = (name) => {
-    if (!categoriesState.includes(name)) categoriesState.push(name);
+const addCategoryFromCreate = (created) => {
+    if (!categoriesState.find((c) => c.id === created.id)) {
+        categoriesState.push(created);
+    }
 };
 
 const typeFilterOptions = [
@@ -47,11 +52,6 @@ const formTypeOptions = [
     { label: 'Gasto', value: 'expense' },
 ];
 
-const formStatusOptions = [
-    { label: 'Previsto', value: 'previsto' },
-    { label: 'Realizado', value: 'realizado' },
-];
-
 const ivaOptions = [
     { label: '21%', value: 21 },
     { label: '10%', value: 10 },
@@ -67,24 +67,26 @@ const irpfOptions = [
 
 const filterType = ref(null);
 const filterStatus = ref(null);
-const filterCategory = ref(null);
+const filterCategoryId = ref(null);
 const filterSearch = ref('');
 
-const categoryOptions = computed(() => [
+const categoryOptionsForFilter = computed(() => [
     { label: 'Todas las categorías', value: null },
-    ...categoriesState.map((c) => ({ label: c, value: c })),
+    ...categoriesState.map((c) => ({ label: c.name, value: c.id })),
 ]);
 
+const categoriesForForm = computed(() =>
+    categoriesState.filter((c) => c.type === form.value.type),
+);
+
 const filteredTransactions = computed(() =>
-    transactionsState.filter((t) => {
+    props.transactions.filter((t) => {
         if (filterType.value && t.type !== filterType.value) return false;
         if (filterStatus.value && t.status !== filterStatus.value) return false;
-        if (filterCategory.value && t.category !== filterCategory.value) return false;
-        if (
-            filterSearch.value &&
-            !t.description.toLowerCase().includes(filterSearch.value.toLowerCase())
-        )
+        if (filterCategoryId.value && t.category_id !== filterCategoryId.value) return false;
+        if (filterSearch.value && !t.label.toLowerCase().includes(filterSearch.value.toLowerCase())) {
             return false;
+        }
         return true;
     }),
 );
@@ -101,32 +103,30 @@ const kpis = computed(() => {
 
 const drawerOpen = ref(false);
 const editingId = ref(null);
+const saving = ref(false);
 const form = ref(emptyForm());
 
 function emptyForm() {
     return {
         type: 'expense',
-        status: 'realizado',
-        description: '',
-        category: null,
-        date: new Date(),
+        label: '',
+        category_id: null,
+        occurred_on: new Date(),
         amount: null,
-        iva: 21,
-        irpf: 0,
+        iva_rate: 21,
+        irpf_rate: 0,
     };
 }
 
-// Quand on switche le type, on bascule sur les valeurs par défaut adaptées
 watch(
     () => form.value.type,
     (newType, oldType) => {
         if (!oldType || newType === oldType) return;
+        form.value.category_id = null;
         if (newType === 'income') {
-            form.value.status = 'previsto';
-            if (form.value.irpf === 0) form.value.irpf = 15;
+            form.value.irpf_rate = 15;
         } else {
-            form.value.status = 'realizado';
-            form.value.irpf = 0;
+            form.value.irpf_rate = 0;
         }
     },
 );
@@ -134,10 +134,10 @@ watch(
 const openCreate = (type = 'expense') => {
     editingId.value = null;
     form.value = emptyForm();
+    form.value.type = type;
     if (type === 'income') {
-        form.value.type = 'income';
-        form.value.status = 'previsto';
-        form.value.irpf = 15;
+        form.value.irpf_rate = 15;
+        form.value.occurred_on = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     }
     drawerOpen.value = true;
 };
@@ -146,48 +146,91 @@ const openEdit = (row) => {
     editingId.value = row.id;
     form.value = {
         type: row.type,
-        status: row.status,
-        description: row.description,
-        category: row.category,
-        date: new Date(row.date),
+        label: row.label,
+        category_id: row.category_id,
+        occurred_on: new Date(row.occurred_on),
         amount: row.amount,
-        iva: row.iva,
-        irpf: row.irpf ?? 0,
+        iva_rate: row.iva_rate ?? 21,
+        irpf_rate: row.irpf_rate ?? 0,
     };
     drawerOpen.value = true;
 };
 
+const buildPayload = () => ({
+    type: form.value.type,
+    label: form.value.label,
+    category_id: form.value.category_id,
+    amount: form.value.amount,
+    iva_rate: form.value.iva_rate,
+    irpf_rate: form.value.irpf_rate,
+    occurred_on:
+        form.value.occurred_on instanceof Date
+            ? form.value.occurred_on.toISOString().split('T')[0]
+            : form.value.occurred_on,
+});
+
 const save = () => {
-    if (editingId.value !== null) {
-        const idx = transactionsState.findIndex((t) => t.id === editingId.value);
-        if (idx >= 0) {
-            transactionsState[idx] = {
-                ...transactionsState[idx],
-                ...form.value,
-                date: form.value.date instanceof Date ? form.value.date.toISOString().split('T')[0] : form.value.date,
-            };
-        }
+    saving.value = true;
+    const payload = buildPayload();
+    const options = {
+        preserveScroll: true,
+        onSuccess: () => {
+            drawerOpen.value = false;
+        },
+        onFinish: () => {
+            saving.value = false;
+        },
+    };
+
+    if (editingId.value) {
+        router.put(`/transacciones/${editingId.value}`, payload, options);
+    } else {
+        router.post('/transacciones', payload, options);
     }
-    drawerOpen.value = false;
 };
 
 const markAsRealizado = (row, event) => {
     event.stopPropagation();
-    const idx = transactionsState.findIndex((t) => t.id === row.id);
-    if (idx >= 0) transactionsState[idx].status = 'realizado';
+    router.patch(`/transacciones/${row.id}/realize`, {}, { preserveScroll: true });
+};
+
+const askDelete = (event) => {
+    if (!editingId.value) return;
+    confirm.require({
+        target: event.currentTarget,
+        message: '¿Eliminar esta transacción?',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Eliminar',
+        rejectLabel: 'Cancelar',
+        acceptClass: 'p-button-danger',
+        accept: () => {
+            const id = editingId.value;
+            router.delete(`/transacciones/${id}`, {
+                preserveScroll: true,
+                onSuccess: () => {
+                    drawerOpen.value = false;
+                },
+            });
+        },
+    });
 };
 
 const statusMeta = (status) =>
     status === 'realizado'
         ? { label: 'Realizado', severity: 'success', icon: 'pi-check-circle' }
         : { label: 'Previsto', severity: 'warn', icon: 'pi-clock' };
+
+const flash = computed(() => page.props.flash);
 </script>
 
 <template>
     <Head title="Transacciones" />
+    <ConfirmPopup />
 
     <AppLayout title="Transacciones">
         <div class="mx-auto max-w-7xl space-y-6">
+            <Message v-if="flash?.success" severity="success" :closable="true">{{ flash.success }}</Message>
+
             <!-- KPI strip -->
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
@@ -217,7 +260,7 @@ const statusMeta = (status) =>
                     </IconField>
                     <Select v-model="filterType" :options="typeFilterOptions" optionLabel="label" optionValue="value" placeholder="Tipo" />
                     <Select v-model="filterStatus" :options="statusFilterOptions" optionLabel="label" optionValue="value" placeholder="Estado" />
-                    <Select v-model="filterCategory" :options="categoryOptions" optionLabel="label" optionValue="value" placeholder="Categoría" />
+                    <Select v-model="filterCategoryId" :options="categoryOptionsForFilter" optionLabel="label" optionValue="value" placeholder="Categoría" />
                 </div>
                 <div class="flex gap-2">
                     <Button label="Nuevo ingreso" icon="pi pi-plus" severity="success" outlined @click="openCreate('income')" />
@@ -244,51 +287,45 @@ const statusMeta = (status) =>
 
                     <Column field="status" header="Estado" :style="{ width: '120px' }">
                         <template #body="{ data }">
-                            <Tag
-                                :value="statusMeta(data.status).label"
-                                :severity="statusMeta(data.status).severity"
-                                :icon="'pi ' + statusMeta(data.status).icon"
-                            />
+                            <Tag :value="statusMeta(data.status).label" :severity="statusMeta(data.status).severity" :icon="'pi ' + statusMeta(data.status).icon" />
                         </template>
                     </Column>
 
-                    <Column field="date" header="Fecha" sortable :style="{ width: '110px' }">
+                    <Column field="occurred_on" header="Fecha" sortable :style="{ width: '110px' }">
                         <template #body="{ data }">
-                            <span class="text-sm">{{ formatShortDate(data.date) }}</span>
+                            <span class="text-sm">{{ formatShortDate(data.occurred_on) }}</span>
                         </template>
                     </Column>
 
-                    <Column field="description" header="Descripción">
+                    <Column field="label" header="Descripción">
                         <template #body="{ data }">
-                            <span class="font-medium text-surface-900">{{ data.description }}</span>
+                            <span class="font-medium text-surface-900">{{ data.label }}</span>
                         </template>
                     </Column>
 
-                    <Column field="category" header="Categoría">
+                    <Column field="category_name" header="Categoría">
                         <template #body="{ data }">
-                            <Tag :value="data.category" severity="secondary" />
+                            <Tag v-if="data.category_name" :value="data.category_name" severity="secondary" />
+                            <span v-else class="text-sm text-surface-400">—</span>
                         </template>
                     </Column>
 
-                    <Column field="iva" header="IVA" :style="{ width: '70px' }">
+                    <Column field="iva_rate" header="IVA" :style="{ width: '70px' }">
                         <template #body="{ data }">
-                            <span class="text-sm text-surface-600">{{ data.iva }}%</span>
+                            <span class="text-sm text-surface-600">{{ data.iva_rate ?? '—' }}{{ data.iva_rate != null ? '%' : '' }}</span>
                         </template>
                     </Column>
 
-                    <Column field="irpf" header="IRPF" :style="{ width: '80px' }">
+                    <Column field="irpf_rate" header="IRPF" :style="{ width: '80px' }">
                         <template #body="{ data }">
-                            <span v-if="data.irpf" class="text-sm text-red-600">−{{ data.irpf }}%</span>
+                            <span v-if="data.irpf_rate" class="text-sm text-red-600">−{{ data.irpf_rate }}%</span>
                             <span v-else class="text-sm text-surface-400">—</span>
                         </template>
                     </Column>
 
                     <Column field="amount" header="Importe" sortable>
                         <template #body="{ data }">
-                            <span
-                                class="font-semibold tabular-nums"
-                                :class="data.type === 'income' ? 'text-emerald-600' : 'text-red-600'"
-                            >
+                            <span class="font-semibold tabular-nums" :class="data.type === 'income' ? 'text-emerald-600' : 'text-red-600'">
                                 {{ data.type === 'income' ? '+' : '−' }} {{ formatEuros(data.amount) }}
                             </span>
                         </template>
@@ -327,17 +364,12 @@ const statusMeta = (status) =>
                 </div>
 
                 <div class="flex flex-col gap-2">
-                    <label class="text-sm font-medium text-surface-700">Estado</label>
-                    <SelectButton v-model="form.status" :options="formStatusOptions" optionLabel="label" optionValue="value" :allowEmpty="false" />
-                </div>
-
-                <div class="flex flex-col gap-2">
-                    <label for="description" class="text-sm font-medium text-surface-700">
+                    <label for="label" class="text-sm font-medium text-surface-700">
                         {{ form.type === 'income' ? 'Cliente / descripción' : 'Descripción' }}
                     </label>
                     <InputText
-                        id="description"
-                        v-model="form.description"
+                        id="label"
+                        v-model="form.label"
                         :placeholder="form.type === 'income' ? 'Ej: Factura Acme S.L. — Hito 2' : 'Ej: Alquiler oficina'"
                         fluid
                     />
@@ -349,34 +381,38 @@ const statusMeta = (status) =>
                         <InputNumber id="amount" v-model="form.amount" :minFractionDigits="2" :maxFractionDigits="2" locale="es-ES" fluid />
                     </div>
                     <div class="flex flex-col gap-2">
-                        <label class="text-sm font-medium text-surface-700">
-                            {{ form.status === 'previsto' ? 'Fecha prevista' : 'Fecha' }}
-                        </label>
-                        <DatePicker v-model="form.date" dateFormat="dd/mm/yy" fluid />
+                        <label class="text-sm font-medium text-surface-700">Fecha</label>
+                        <DatePicker v-model="form.occurred_on" dateFormat="dd/mm/yy" fluid />
                     </div>
                 </div>
 
                 <div class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">Categoría</label>
-                    <CategorySelect v-model="form.category" :options="categoriesState" @add="addCategory" />
+                    <CategorySelect
+                        v-model="form.category_id"
+                        :options="categoriesForForm"
+                        :type="form.type"
+                        @created="addCategoryFromCreate"
+                    />
                 </div>
 
                 <div class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">IVA</label>
-                    <Select v-model="form.iva" :options="ivaOptions" optionLabel="label" optionValue="value" fluid />
+                    <Select v-model="form.iva_rate" :options="ivaOptions" optionLabel="label" optionValue="value" fluid />
                 </div>
 
                 <div v-if="form.type === 'income'" class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">IRPF retenido</label>
-                    <Select v-model="form.irpf" :options="irpfOptions" optionLabel="label" optionValue="value" fluid />
+                    <Select v-model="form.irpf_rate" :options="irpfOptions" optionLabel="label" optionValue="value" fluid />
                     <Message severity="info" size="small" variant="simple">
                         Aplica solo en facturas B2B en España.
                     </Message>
                 </div>
 
                 <div class="mt-2 flex gap-2">
+                    <Button v-if="editingId" type="button" icon="pi pi-trash" severity="danger" outlined @click="askDelete" />
                     <Button type="button" label="Cancelar" severity="secondary" outlined fluid @click="drawerOpen = false" />
-                    <Button type="submit" :label="editingId ? 'Guardar' : 'Crear'" fluid />
+                    <Button type="submit" :label="editingId ? 'Guardar' : 'Crear'" :loading="saving" fluid />
                 </div>
             </form>
         </Drawer>

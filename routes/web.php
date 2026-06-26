@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\FinancialProfileController;
 use App\Http\Controllers\RecurringChargeController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
@@ -58,6 +59,9 @@ Route::middleware('auth')->group(function () use ($categories) {
     Route::delete('/cargos-recurrentes/{cargo}', [RecurringChargeController::class, 'destroy'])->name('cargos-recurrentes.destroy');
     Route::patch('/cargos-recurrentes/{cargo}/toggle', [RecurringChargeController::class, 'toggle'])->name('cargos-recurrentes.toggle');
 
+    Route::get('/perfil-fiscal', [FinancialProfileController::class, 'edit'])->name('perfil-fiscal.edit');
+    Route::put('/perfil-fiscal', [FinancialProfileController::class, 'update'])->name('perfil-fiscal.update');
+
     Route::get('/dashboard', function () {
         $today = now();
 
@@ -103,22 +107,6 @@ Route::middleware('auth')->group(function () use ($categories) {
             ],
         ]);
     })->name('dashboard');
-
-    Route::get('/perfil-fiscal', function () {
-        return Inertia::render('PerfilFiscal/Edit', [
-            'profile' => [
-                'fullName' => 'Nicolas del Castillo',
-                'nif' => 'Y1234567X',
-                'activity' => 'Desarrollo de software',
-                'province' => 'Barcelona',
-                'regime' => 'direct_simplified',
-                'ivaDefault' => 21,
-                'irpfDefault' => 15,
-                'surchargeEquivalence' => false,
-                'intraCommunity' => true,
-            ],
-        ]);
-    })->name('perfil-fiscal.edit');
 
     Route::get('/flujo-caja', function () use ($categories) {
         return Inertia::render('FlujoCaja/Index', [

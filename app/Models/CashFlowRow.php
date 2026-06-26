@@ -40,8 +40,8 @@ class CashFlowRow extends Model
         return $this->belongsTo(Category::class);
     }
 
-    public function cells(): HasMany
+    public function movements(): HasMany
     {
-        return $this->hasMany(CashFlowCell::class, 'row_id');
+        return $this->hasMany(Movement::class, 'cash_flow_row_id');
     }
 }

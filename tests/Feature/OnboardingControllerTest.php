@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Enums\ChargeFrequency;
+use App\Enums\MovementKind;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia;
@@ -29,7 +29,7 @@ class OnboardingControllerTest extends TestCase
             );
     }
 
-    public function test_store_met_a_jour_le_profil_et_cree_le_cargo_cuota(): void
+    public function test_store_cree_le_profil_et_12_movements_cuota(): void
     {
         $user = User::factory()->create();
 
@@ -42,43 +42,39 @@ class OnboardingControllerTest extends TestCase
         $profile = $user->fresh()->financialProfile;
         $this->assertSame(46900, $profile->cuota_monthly);
         $this->assertSame(220000, $profile->monthly_salary);
+        $this->assertNotNull($profile->onboarded_at);
 
-        $this->assertDatabaseHas('recurring_charges', [
-            'user_id' => $user->id,
-            'label' => 'Cuota autónomos',
-            'amount' => 46900,
-            'frequency' => ChargeFrequency::Monthly->value,
-            'day_of_month' => 30,
-            'is_active' => true,
-        ]);
+        // 12 movements expense pour la cuota autónomos.
+        $cuotaMovements = $user->movements()
+            ->where('label', 'Cuota autónomos')
+            ->where('kind', MovementKind::Expense->value)
+            ->get();
+        $this->assertCount(12, $cuotaMovements);
+        $this->assertSame(46900, $cuotaMovements->first()->amount);
 
         // Catégories par défaut créées.
         $this->assertGreaterThan(0, $user->categories()->count());
     }
 
-    public function test_store_met_a_jour_le_cargo_cuota_existant(): void
+    public function test_store_remplace_les_movements_cuota_existants(): void
     {
         $user = User::factory()->create();
-        $user->financialProfile()->create();
-        $user->recurringCharges()->create([
-            'label' => 'Cuota autónomos',
-            'amount' => 28000,
-            'frequency' => ChargeFrequency::Monthly,
-            'day_of_month' => 30,
-            'next_due_on' => '2026-06-30',
-            'is_active' => false,
-        ]);
 
+        $this->actingAs($user)->post('/onboarding', [
+            'annualRevenue' => 30000,
+            'cuotaMonthly' => 280,
+            'monthlySalary' => 1500,
+        ])->assertRedirect();
+
+        // Deuxième appel : doit remplacer les anciens.
         $this->actingAs($user)->post('/onboarding', [
             'annualRevenue' => 30000,
             'cuotaMonthly' => 469,
             'monthlySalary' => 1500,
         ])->assertRedirect();
 
-        $this->assertSame(1, $user->recurringCharges()->where('label', 'Cuota autónomos')->count());
-        $cuota = $user->recurringCharges()->where('label', 'Cuota autónomos')->first();
-        $this->assertSame(46900, $cuota->amount);
-        $this->assertTrue($cuota->is_active);
+        $this->assertCount(12, $user->movements()->where('label', 'Cuota autónomos')->get());
+        $this->assertSame(46900, $user->movements()->where('label', 'Cuota autónomos')->first()->amount);
     }
 
     public function test_store_valide_les_montants(): void

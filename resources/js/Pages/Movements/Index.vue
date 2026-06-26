@@ -22,7 +22,7 @@ import CategorySelect from '@/Components/CategorySelect.vue';
 import { formatEuros, formatShortDate } from '@/lib/format';
 
 const props = defineProps({
-    transactions: { type: Array, required: true },
+    movements: { type: Array, required: true },
     categories: { type: Array, required: true }, // [{ id, name, type }]
 });
 
@@ -84,12 +84,12 @@ const categoryOptionsForFilter = computed(() => [
 ]);
 
 const categoriesForForm = computed(() =>
-    categoriesState.filter((c) => c.type === form.value.type),
+    categoriesState.filter((c) => c.type === form.value.kind),
 );
 
-const filteredTransactions = computed(() =>
-    props.transactions.filter((t) => {
-        if (filterType.value && t.type !== filterType.value) return false;
+const filteredMovements = computed(() =>
+    props.movements.filter((t) => {
+        if (filterType.value && t.kind !== filterType.value) return false;
         if (filterStatus.value && t.status !== filterStatus.value) return false;
         if (filterPaid.value !== null && t.is_paid !== filterPaid.value) return false;
         if (filterCategoryId.value && t.category_id !== filterCategoryId.value) return false;
@@ -101,12 +101,12 @@ const filteredTransactions = computed(() =>
 );
 
 const kpis = computed(() => {
-    const r = filteredTransactions.value;
+    const r = filteredMovements.value;
     return {
-        cobrado: r.filter((t) => t.type === 'income' && t.status === 'realizado').reduce((s, t) => s + t.amount, 0),
-        porCobrar: r.filter((t) => t.type === 'income' && t.status === 'previsto').reduce((s, t) => s + t.amount, 0),
-        gastos: r.filter((t) => t.type === 'expense' && t.status === 'realizado').reduce((s, t) => s + t.amount, 0),
-        porPagar: r.filter((t) => t.type === 'expense' && t.status === 'previsto').reduce((s, t) => s + t.amount, 0),
+        cobrado: r.filter((t) => t.kind === 'income' && t.status === 'realizado').reduce((s, t) => s + t.amount, 0),
+        porCobrar: r.filter((t) => t.kind === 'income' && t.status === 'previsto').reduce((s, t) => s + t.amount, 0),
+        gastos: r.filter((t) => t.kind === 'expense' && t.status === 'realizado').reduce((s, t) => s + t.amount, 0),
+        porPagar: r.filter((t) => t.kind === 'expense' && t.status === 'previsto').reduce((s, t) => s + t.amount, 0),
     };
 });
 
@@ -117,20 +117,21 @@ const form = ref(emptyForm());
 
 function emptyForm() {
     return {
-        type: 'expense',
+        kind: 'expense',
         label: '',
         category_id: null,
-        occurred_on: new Date(),
+        estimated_on: new Date(),
         amount: null,
         has_iva: true,
+        has_irpf: false,
         iva_rate: 21,
-        irpf_rate: 0,
+        irpf_rate: 15,
         paid: false,
     };
 }
 
 watch(
-    () => form.value.type,
+    () => form.value.kind,
     (newType, oldType) => {
         if (!oldType || newType === oldType) return;
         form.value.category_id = null;
@@ -142,46 +143,50 @@ watch(
     },
 );
 
-const openCreate = (type = 'expense') => {
+const openCreate = (kind = 'expense') => {
     editingId.value = null;
     form.value = emptyForm();
-    form.value.type = type;
-    if (type === 'income') {
-        form.value.irpf_rate = 15;
-        form.value.occurred_on = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    form.value.kind = kind;
+    if (kind === 'income') {
+        form.value.has_irpf = true;
+        form.value.estimated_on = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    } else {
+        form.value.has_irpf = false;
     }
     drawerOpen.value = true;
 };
 
 const openEdit = (row) => {
-    if (row.is_planned) return;
     editingId.value = row.id;
     form.value = {
-        type: row.type,
+        kind: row.kind,
         label: row.label,
         category_id: row.category_id,
-        occurred_on: new Date(row.occurred_on),
+        estimated_on: new Date(row.estimated_on),
         amount: row.amount,
-        has_iva: row.iva_rate != null && row.iva_rate > 0,
-        iva_rate: row.iva_rate && row.iva_rate > 0 ? row.iva_rate : 21,
-        irpf_rate: row.irpf_rate ?? 0,
+        has_iva: row.has_iva ?? true,
+        has_irpf: row.has_irpf ?? false,
+        iva_rate: row.iva_rate ?? 21,
+        irpf_rate: row.irpf_rate ?? 15,
         paid: !!row.is_paid,
     };
     drawerOpen.value = true;
 };
 
 const buildPayload = () => ({
-    type: form.value.type,
+    kind: form.value.kind,
     label: form.value.label,
     category_id: form.value.category_id,
     amount: form.value.amount,
-    iva_rate: form.value.has_iva ? form.value.iva_rate : 0,
-    irpf_rate: form.value.irpf_rate,
+    has_iva: form.value.has_iva,
+    has_irpf: form.value.kind === 'income' ? form.value.has_irpf : false,
+    iva_rate: form.value.has_iva ? form.value.iva_rate : null,
+    irpf_rate: form.value.kind === 'income' && form.value.has_irpf ? form.value.irpf_rate : null,
     paid: form.value.paid,
-    occurred_on:
-        form.value.occurred_on instanceof Date
-            ? form.value.occurred_on.toISOString().split('T')[0]
-            : form.value.occurred_on,
+    estimated_on:
+        form.value.estimated_on instanceof Date
+            ? form.value.estimated_on.toISOString().split('T')[0]
+            : form.value.estimated_on,
 });
 
 const save = () => {
@@ -198,15 +203,15 @@ const save = () => {
     };
 
     if (editingId.value) {
-        router.put(`/transactions/${editingId.value}`, payload, options);
+        router.put(`/movements/${editingId.value}`, payload, options);
     } else {
-        router.post('/transactions', payload, options);
+        router.post('/movements', payload, options);
     }
 };
 
 const togglePaid = (row, event) => {
     event.stopPropagation();
-    router.patch(`/transactions/${row.id}/toggle-paid`, {}, { preserveScroll: true });
+    router.patch(`/movements/${row.id}/toggle-paid`, {}, { preserveScroll: true });
 };
 
 const askDelete = (event) => {
@@ -220,7 +225,7 @@ const askDelete = (event) => {
         acceptClass: 'p-button-danger',
         accept: () => {
             const id = editingId.value;
-            router.delete(`/transactions/${id}`, {
+            router.delete(`/movements/${id}`, {
                 preserveScroll: true,
                 onSuccess: () => {
                     drawerOpen.value = false;
@@ -238,7 +243,7 @@ const statusMeta = (status) =>
 const paidMeta = (row) => {
     if (row.is_paid) {
         return {
-            label: row.type === 'income' ? 'Cobrado' : 'Pagado',
+            label: row.kind === 'income' ? 'Cobrado' : 'Pagado',
             severity: 'success',
             icon: 'pi-check-circle',
         };
@@ -301,12 +306,12 @@ const flash = computed(() => page.props.flash);
             <!-- Table -->
             <div class="rounded-lg border border-surface-200 bg-white">
                 <DataTable
-                    :value="filteredTransactions"
+                    :value="filteredMovements"
                     :rows="15"
                     paginator
                     stripedRows
                     rowHover
-                    @row-click="(e) => !e.data.is_planned && openEdit(e.data)"
+                    @row-click="(e) => openEdit(e.data)"
                 >
                     <template #empty>
                         <div class="py-8 text-center text-sm text-surface-500">
@@ -321,9 +326,9 @@ const flash = computed(() => page.props.flash);
                         </template>
                     </Column>
 
-                    <Column field="occurred_on" header="Fecha" sortable :style="{ width: '110px' }">
+                    <Column field="estimated_on" header="Fecha" sortable :style="{ width: '110px' }">
                         <template #body="{ data }">
-                            <span class="text-sm">{{ formatShortDate(data.occurred_on) }}</span>
+                            <span class="text-sm">{{ formatShortDate(data.estimated_on) }}</span>
                         </template>
                     </Column>
 
@@ -331,12 +336,12 @@ const flash = computed(() => page.props.flash);
                         <template #body="{ data }">
                             <span class="font-medium text-surface-900">{{ data.label }}</span>
                             <span
-                                v-if="data.is_planned"
-                                v-tooltip="'Generada desde Flujo de caja — editable desde allí.'"
+                                v-if="data.is_recurring"
+                                v-tooltip="'Forma parte de una serie recurrente del Flujo de caja.'"
                                 class="ml-2 inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 ring-1 ring-violet-200"
                             >
-                                <i class="pi pi-table text-[9px]" />
-                                Plan
+                                <i class="pi pi-replay text-[9px]" />
+                                Recurrente
                             </span>
                         </template>
                     </Column>
@@ -363,8 +368,8 @@ const flash = computed(() => page.props.flash);
 
                     <Column field="amount" header="Importe" sortable>
                         <template #body="{ data }">
-                            <span class="font-semibold tabular-nums" :class="data.type === 'income' ? 'text-emerald-600' : 'text-red-600'">
-                                {{ data.type === 'income' ? '+' : '−' }} {{ formatEuros(data.amount) }}
+                            <span class="font-semibold tabular-nums" :class="data.kind === 'income' ? 'text-emerald-600' : 'text-red-600'">
+                                {{ data.kind === 'income' ? '+' : '−' }} {{ formatEuros(data.amount) }}
                             </span>
                         </template>
                     </Column>
@@ -372,7 +377,6 @@ const flash = computed(() => page.props.flash);
                     <Column :style="{ width: '70px' }">
                         <template #body="{ data }">
                             <Button
-                                v-if="!data.is_planned"
                                 :icon="data.is_paid ? 'pi pi-undo' : 'pi pi-check'"
                                 size="small"
                                 :severity="data.is_paid ? 'secondary' : 'success'"
@@ -380,7 +384,7 @@ const flash = computed(() => page.props.flash);
                                 rounded
                                 v-tooltip.left="data.is_paid
                                     ? 'Marcar como pendiente'
-                                    : data.type === 'income' ? 'Marcar como cobrado' : 'Marcar como pagado'"
+                                    : data.kind === 'income' ? 'Marcar como cobrado' : 'Marcar como pagado'"
                                 @click="togglePaid(data, $event)"
                             />
                         </template>
@@ -389,7 +393,6 @@ const flash = computed(() => page.props.flash);
                     <Column :style="{ width: '60px' }">
                         <template #body="{ data }">
                             <Button
-                                v-if="!data.is_planned"
                                 icon="pi pi-pencil"
                                 size="small"
                                 severity="secondary"
@@ -414,24 +417,24 @@ const flash = computed(() => page.props.flash);
         >
             <template #header>
                 <span class="text-lg font-semibold">
-                    {{ editingId ? 'Editar transacción' : form.type === 'income' ? 'Nuevo ingreso' : 'Nuevo gasto' }}
+                    {{ editingId ? 'Editar transacción' : form.kind === 'income' ? 'Nuevo ingreso' : 'Nuevo gasto' }}
                 </span>
             </template>
 
             <form class="flex flex-col gap-5" @submit.prevent="save">
                 <div class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">Tipo</label>
-                    <SelectButton v-model="form.type" :options="formTypeOptions" optionLabel="label" optionValue="value" :allowEmpty="false" />
+                    <SelectButton v-model="form.kind" :options="formTypeOptions" optionLabel="label" optionValue="value" :allowEmpty="false" />
                 </div>
 
                 <div class="flex flex-col gap-2">
                     <label for="label" class="text-sm font-medium text-surface-700">
-                        {{ form.type === 'income' ? 'Cliente / descripción' : 'Descripción' }}
+                        {{ form.kind === 'income' ? 'Cliente / descripción' : 'Descripción' }}
                     </label>
                     <InputText
                         id="label"
                         v-model="form.label"
-                        :placeholder="form.type === 'income' ? 'Ej: Factura Acme S.L. — Hito 2' : 'Ej: Alquiler oficina'"
+                        :placeholder="form.kind === 'income' ? 'Ej: Factura Acme S.L. — Hito 2' : 'Ej: Alquiler oficina'"
                         fluid
                     />
                 </div>
@@ -443,7 +446,7 @@ const flash = computed(() => page.props.flash);
                     </div>
                     <div class="flex flex-col gap-2">
                         <label class="text-sm font-medium text-surface-700">Fecha</label>
-                        <DatePicker v-model="form.occurred_on" dateFormat="dd/mm/yy" fluid />
+                        <DatePicker v-model="form.estimated_on" dateFormat="dd/mm/yy" fluid />
                     </div>
                 </div>
 
@@ -452,7 +455,7 @@ const flash = computed(() => page.props.flash);
                     <CategorySelect
                         v-model="form.category_id"
                         :options="categoriesForForm"
-                        :type="form.type"
+                        :type="form.kind"
                         @created="addCategoryFromCreate"
                     />
                 </div>
@@ -462,7 +465,7 @@ const flash = computed(() => page.props.flash);
                         <div>
                             <p class="text-sm font-medium text-surface-700">Con IVA</p>
                             <p class="text-xs text-surface-500">
-                                {{ form.type === 'income'
+                                {{ form.kind === 'income'
                                     ? 'Desactivar si facturas sin IVA (UE intracomunitario, exento).'
                                     : 'Desactivar si el proveedor no factura con IVA.' }}
                             </p>
@@ -480,7 +483,7 @@ const flash = computed(() => page.props.flash);
                     />
                 </div>
 
-                <div v-if="form.type === 'income'" class="flex flex-col gap-2">
+                <div v-if="form.kind === 'income'" class="flex flex-col gap-2">
                     <label class="text-sm font-medium text-surface-700">IRPF retenido</label>
                     <Select v-model="form.irpf_rate" :options="irpfOptions" optionLabel="label" optionValue="value" fluid />
                     <Message severity="info" size="small" variant="simple">
@@ -491,10 +494,10 @@ const flash = computed(() => page.props.flash);
                 <div class="flex items-center justify-between rounded-lg border border-surface-200 px-3 py-2">
                     <div>
                         <p class="text-sm font-medium text-surface-700">
-                            {{ form.type === 'income' ? 'Cobrado' : 'Pagado' }}
+                            {{ form.kind === 'income' ? 'Cobrado' : 'Pagado' }}
                         </p>
                         <p class="text-xs text-surface-500">
-                            {{ form.type === 'income'
+                            {{ form.kind === 'income'
                                 ? 'Indica si el cliente ya ha pagado esta factura.'
                                 : 'Indica si has pagado este gasto.' }}
                         </p>

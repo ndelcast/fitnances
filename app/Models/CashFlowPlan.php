@@ -34,8 +34,8 @@ class CashFlowPlan extends Model
         return $this->hasMany(CashFlowRow::class, 'plan_id');
     }
 
-    public function quarterlyTaxes(): HasMany
+    public function movements(): HasMany
     {
-        return $this->hasMany(QuarterlyTax::class, 'plan_id');
+        return $this->hasMany(Movement::class);
     }
 }

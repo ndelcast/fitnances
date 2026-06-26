@@ -9,9 +9,8 @@ use App\Http\Controllers\CashFlowController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FinancialProfileController;
+use App\Http\Controllers\MovementController;
 use App\Http\Controllers\OnboardingController;
-use App\Http\Controllers\RecurringChargeController;
-use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -45,17 +44,11 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
 
-    Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions.index');
-    Route::post('/transactions', [TransactionController::class, 'store'])->name('transactions.store');
-    Route::put('/transactions/{transaction}', [TransactionController::class, 'update'])->name('transactions.update');
-    Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
-    Route::patch('/transactions/{transaction}/toggle-paid', [TransactionController::class, 'togglePaid'])->name('transactions.toggle-paid');
-
-    Route::get('/recurring-charges', [RecurringChargeController::class, 'index'])->name('recurring-charges.index');
-    Route::post('/recurring-charges', [RecurringChargeController::class, 'store'])->name('recurring-charges.store');
-    Route::put('/recurring-charges/{charge}', [RecurringChargeController::class, 'update'])->name('recurring-charges.update');
-    Route::delete('/recurring-charges/{charge}', [RecurringChargeController::class, 'destroy'])->name('recurring-charges.destroy');
-    Route::patch('/recurring-charges/{charge}/toggle', [RecurringChargeController::class, 'toggle'])->name('recurring-charges.toggle');
+    Route::get('/movements', [MovementController::class, 'index'])->name('movements.index');
+    Route::post('/movements', [MovementController::class, 'store'])->name('movements.store');
+    Route::put('/movements/{movement}', [MovementController::class, 'update'])->name('movements.update');
+    Route::delete('/movements/{movement}', [MovementController::class, 'destroy'])->name('movements.destroy');
+    Route::patch('/movements/{movement}/toggle-paid', [MovementController::class, 'togglePaid'])->name('movements.toggle-paid');
 
     Route::get('/fiscal-profile', [FinancialProfileController::class, 'edit'])->name('fiscal-profile.edit');
     Route::put('/fiscal-profile', [FinancialProfileController::class, 'update'])->name('fiscal-profile.update');

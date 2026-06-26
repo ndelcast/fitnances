@@ -71,19 +71,9 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(Category::class);
     }
 
-    public function transactions(): HasMany
+    public function movements(): HasMany
     {
-        return $this->hasMany(Transaction::class);
-    }
-
-    public function recurringCharges(): HasMany
-    {
-        return $this->hasMany(RecurringCharge::class);
-    }
-
-    public function expectedIncomes(): HasMany
-    {
-        return $this->hasMany(ExpectedIncome::class);
+        return $this->hasMany(Movement::class);
     }
 
     public function cashFlowPlans(): HasMany

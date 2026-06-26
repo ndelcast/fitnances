@@ -63,18 +63,19 @@ class DashboardController extends Controller
             'amount' => $this->euros($snapshot->provisions->irpf),
         ];
 
-        $cuota = $user->recurringCharges()
-            ->active()
+        $cuota = $user->movements()
+            ->unpaid()
             ->where('label', 'Cuota autónomos')
-            ->orderBy('next_due_on')
+            ->where('estimated_on', '>=', $today->toDateString())
+            ->orderBy('estimated_on')
             ->first();
 
         if ($cuota) {
             $deadlines[] = [
                 'modelo' => 'Cuota autónomos',
                 'label' => 'Domiciliación mensual',
-                'date' => $cuota->next_due_on->toDateString(),
-                'daysLeft' => $today->diffInDays($cuota->next_due_on, false),
+                'date' => $cuota->estimated_on->toDateString(),
+                'daysLeft' => $today->diffInDays($cuota->estimated_on, false),
                 'amount' => $this->euros($cuota->amount),
             ];
         }

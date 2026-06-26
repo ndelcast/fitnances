@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\TransactionType;
+use App\Enums\MovementKind;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
@@ -23,7 +23,7 @@ class StoreCategoryRequest extends FormRequest
                     ->where('user_id', $this->user()->id)
                     ->where('type', $this->input('type'))),
             ],
-            'type' => ['required', new Enum(TransactionType::class)],
+            'type' => ['required', new Enum(MovementKind::class)],
         ];
     }
 }

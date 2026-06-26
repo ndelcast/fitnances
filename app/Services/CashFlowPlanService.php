@@ -3,22 +3,21 @@
 namespace App\Services;
 
 use App\Enums\CashFlowRowKind;
-use App\Enums\QuarterlyTaxKind;
-use App\Enums\TransactionType;
-use App\Models\CashFlowCell;
+use App\Enums\MovementKind;
+use App\Enums\MovementSource;
 use App\Models\CashFlowPlan;
 use App\Models\CashFlowRow;
-use App\Models\FinancialProfile;
-use App\Models\QuarterlyTax;
-use App\Models\Transaction;
+use App\Models\Movement;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Gère les plans de trésorerie annuels : création par défaut,
- * sauvegarde batch de la grille et synchronisation des Transactions
- * dérivées (une transaction par cellule non nulle ingreso/gasto).
+ * Gère les plans de trésorerie annuels : auto-création et sauvegarde
+ * batch de la grille.
+ *
+ * Une grille = un Plan annuel → N Rows → 12 Movements par Row
+ * (une par mois, estimated_on = 15 du mois).
  */
 final class CashFlowPlanService
 {
@@ -32,13 +31,26 @@ final class CashFlowPlanService
 
             if ($plan->wasRecentlyCreated) {
                 $this->seedDefaults($user, $plan);
-                $this->syncTransactions($plan);
             }
 
             return $plan;
         });
     }
 
+    /**
+     * Sauvegarde batch : wipe + recreate Rows et leurs Movements.
+     * Les Movements ponctuelles (cash_flow_row_id = null) du user
+     * ne sont pas touchées.
+     *
+     * @param  array{
+     *   startingBalance?: float|int,
+     *   irpfExempt?: bool,
+     *   incomes?: array<int, array{label:string,clientName?:string|null,categoryId?:int|null,hasIva?:bool,hasIrpf?:bool,monthly:array<int,float>,paid:array<int,bool>}>,
+     *   expenses?: array<int, array{label:string,categoryId?:int|null,hasIva?:bool,monthly:array<int,float>,paid:array<int,bool>}>,
+     *   salary?: array{label?:string,monthly:array<int,float>,paid:array<int,bool>},
+     *   quarterlyTaxes?: array{ivaPaid?:array<int,bool>,irpfPaid?:array<int,bool>}
+     * }  $payload
+     */
     public function save(CashFlowPlan $plan, array $payload): void
     {
         DB::transaction(function () use ($plan, $payload) {
@@ -47,8 +59,13 @@ final class CashFlowPlanService
                 'irpf_exempt' => (bool) ($payload['irpfExempt'] ?? false),
             ]);
 
-            // Wipe and rebuild rows/cells (simplifie le sync pour le MVP).
+            // Wipe : Rows + leurs Movements (cascade via FK).
             $plan->rows()->delete();
+            // Wipe : Movements kind=tax sans row (les taxes payées).
+            $plan->movements()
+                ->where('kind', MovementKind::Tax->value)
+                ->whereNull('cash_flow_row_id')
+                ->delete();
 
             $sort = 0;
             foreach ($payload['incomes'] ?? [] as $row) {
@@ -61,96 +78,13 @@ final class CashFlowPlanService
                 $this->createRow($plan, CashFlowRowKind::Salary, $payload['salary'], $sort++);
             }
 
-            // Le montant des taxes est calculé côté Vue ; on ne persiste ici
-            // que leur statut "payé" (pour le calcul du saldo réel).
-            $plan->quarterlyTaxes()->delete();
-            $paidMap = [
-                QuarterlyTaxKind::Iva->value => $payload['quarterlyTaxes']['ivaPaid'] ?? [],
-                QuarterlyTaxKind::Irpf->value => $payload['quarterlyTaxes']['irpfPaid'] ?? [],
-            ];
-            foreach ([QuarterlyTaxKind::Iva, QuarterlyTaxKind::Irpf] as $kind) {
-                foreach ($paidMap[$kind->value] as $idx => $paid) {
-                    if (! $paid) {
-                        continue;
-                    }
-                    QuarterlyTax::create([
-                        'plan_id' => $plan->id,
-                        'kind' => $kind,
-                        'quarter' => $idx + 1,
-                        'amount' => 0,
-                        'paid_at' => now(),
-                    ]);
-                }
-            }
-
-            $this->syncTransactions($plan->fresh(['rows.cells']));
+            $this->upsertTaxMovements($plan, $payload['quarterlyTaxes'] ?? []);
         });
     }
 
     /**
-     * Recrée les Transactions liées à ce plan à partir des cellules.
-     * Une cellule non vide (income/expense) = une Transaction. Le salaire
-     * n'est pas matérialisé (ce n'est pas un mouvement entrant/sortant
-     * vers/depuis l'État ou un tiers).
+     * @param  array{label?:string,clientName?:string|null,categoryId?:int|null,hasIva?:bool,hasIrpf?:bool,monthly:array<int,float>,paid?:array<int,bool>}  $row
      */
-    private function syncTransactions(CashFlowPlan $plan): void
-    {
-        Transaction::where('cash_flow_plan_id', $plan->id)->delete();
-
-        $profile = $plan->user->financialProfile;
-
-        foreach ($plan->rows as $row) {
-            if ($row->kind === CashFlowRowKind::Salary) {
-                continue;
-            }
-
-            foreach ($row->cells as $cell) {
-                if ((int) $cell->amount === 0) {
-                    continue;
-                }
-
-                Transaction::create([
-                    'user_id' => $plan->user_id,
-                    'cash_flow_plan_id' => $plan->id,
-                    'category_id' => $row->category_id,
-                    'type' => $row->kind === CashFlowRowKind::Income
-                        ? TransactionType::Income
-                        : TransactionType::Expense,
-                    'amount' => $cell->amount,
-                    'iva_rate' => $this->ivaRateFor($row, $profile),
-                    'irpf_rate' => $this->irpfRateFor($row, $profile),
-                    'label' => $row->label,
-                    'occurred_on' => $cell->paid_at
-                        ? $cell->paid_at->toDateString()
-                        : CarbonImmutable::create($plan->year, $cell->month, 15)->toDateString(),
-                    'paid_at' => $cell->paid_at,
-                ]);
-            }
-        }
-    }
-
-    private function ivaRateFor(CashFlowRow $row, ?FinancialProfile $profile): float
-    {
-        if (! $row->has_iva) {
-            return 0;
-        }
-
-        return $profile ? (float) $profile->iva_default : 21.0;
-    }
-
-    private function irpfRateFor(CashFlowRow $row, ?FinancialProfile $profile): ?float
-    {
-        if ($row->kind !== CashFlowRowKind::Income) {
-            return null;
-        }
-
-        if (! $row->has_irpf) {
-            return 0;
-        }
-
-        return $profile ? (float) $profile->irpf_default : 15.0;
-    }
-
     private function createRow(CashFlowPlan $plan, CashFlowRowKind $kind, array $row, int $sortOrder): void
     {
         $created = CashFlowRow::create([
@@ -159,25 +93,97 @@ final class CashFlowPlanService
             'label' => $row['label'] ?? ($kind === CashFlowRowKind::Salary ? 'Salario' : 'Sin nombre'),
             'client_name' => $row['clientName'] ?? null,
             'category_id' => $row['categoryId'] ?? null,
-            'has_iva' => $kind === CashFlowRowKind::Salary
-                ? false
-                : ($row['hasIva'] ?? true),
-            'has_irpf' => $kind === CashFlowRowKind::Income
-                ? ($row['hasIrpf'] ?? true)
-                : false,
+            'has_iva' => $kind === CashFlowRowKind::Salary ? false : ($row['hasIva'] ?? true),
+            'has_irpf' => $kind === CashFlowRowKind::Income ? ($row['hasIrpf'] ?? true) : false,
             'sort_order' => $sortOrder,
         ]);
 
+        $movementKind = match ($kind) {
+            CashFlowRowKind::Income => MovementKind::Income,
+            CashFlowRowKind::Expense => MovementKind::Expense,
+            CashFlowRowKind::Salary => MovementKind::Salary,
+        };
+
         $monthly = $row['monthly'] ?? [];
         $paid = $row['paid'] ?? [];
+
         foreach (range(0, 11) as $i) {
-            CashFlowCell::create([
-                'row_id' => $created->id,
-                'month' => $i + 1,
-                'amount' => $this->toCents($monthly[$i] ?? 0),
+            $amount = $this->toCents($monthly[$i] ?? 0);
+            if ($amount === 0) {
+                continue; // pas de movement pour les cellules vides
+            }
+            Movement::create([
+                'user_id' => $plan->user_id,
+                'cash_flow_plan_id' => $plan->id,
+                'cash_flow_row_id' => $created->id,
+                'category_id' => $row['categoryId'] ?? null,
+                'kind' => $movementKind,
+                'label' => $created->label,
+                'client_name' => $row['clientName'] ?? null,
+                'amount' => $amount,
+                'estimated_on' => CarbonImmutable::create($plan->year, $i + 1, 15)->toDateString(),
                 'paid_at' => ($paid[$i] ?? false) ? now() : null,
+                'iva_rate' => null,
+                'irpf_rate' => null,
+                'has_iva' => $created->has_iva,
+                'has_irpf' => $created->has_irpf,
+                'source' => MovementSource::Recurring,
             ]);
         }
+    }
+
+    /**
+     * Les taxes trimestrielles payées sont matérialisées en Movements
+     * kind=tax. Le montant exact est dérivé côté UI ; on stocke 0 ici
+     * (le label suffit à les identifier ; le montant sera mis à jour
+     * par un futur calcul si besoin). Pour le MVP : seul l'état "payé"
+     * compte côté DB, le montant est recalculé live.
+     *
+     * @param  array{ivaPaid?:array<int,bool>,irpfPaid?:array<int,bool>}  $taxes
+     */
+    private function upsertTaxMovements(CashFlowPlan $plan, array $taxes): void
+    {
+        $map = [
+            'iva' => $taxes['ivaPaid'] ?? [],
+            'irpf' => $taxes['irpfPaid'] ?? [],
+        ];
+
+        foreach ($map as $kindLabel => $paidArr) {
+            foreach ($paidArr as $idx => $paid) {
+                if (! $paid) {
+                    continue;
+                }
+                $quarter = $idx + 1;
+                Movement::create([
+                    'user_id' => $plan->user_id,
+                    'cash_flow_plan_id' => $plan->id,
+                    'cash_flow_row_id' => null,
+                    'category_id' => null,
+                    'kind' => MovementKind::Tax,
+                    'label' => strtoupper($kindLabel)." Q{$quarter} {$plan->year}",
+                    'client_name' => null,
+                    'amount' => 0, // calculé live côté Vue
+                    'estimated_on' => $this->modeloDeadline($plan->year, $quarter)->toDateString(),
+                    'paid_at' => now(),
+                    'iva_rate' => null,
+                    'irpf_rate' => null,
+                    'has_iva' => false,
+                    'has_irpf' => false,
+                    'source' => MovementSource::Manual,
+                ]);
+            }
+        }
+    }
+
+    private function modeloDeadline(int $year, int $quarter): CarbonImmutable
+    {
+        return match ($quarter) {
+            1 => CarbonImmutable::create($year, 4, 20),
+            2 => CarbonImmutable::create($year, 7, 20),
+            3 => CarbonImmutable::create($year, 10, 20),
+            4 => CarbonImmutable::create($year + 1, 1, 30),
+            default => CarbonImmutable::create($year, 12, 31),
+        };
     }
 
     private function seedDefaults(User $user, CashFlowPlan $plan): void
@@ -185,55 +191,34 @@ final class CashFlowPlanService
         $profile = $user->financialProfile;
         $monthlySalary = $profile?->monthly_salary ?? 0;
 
-        if ($monthlySalary > 0) {
-            $row = CashFlowRow::create([
-                'plan_id' => $plan->id,
-                'kind' => CashFlowRowKind::Salary,
+        if ($monthlySalary <= 0) {
+            return;
+        }
+
+        $row = CashFlowRow::create([
+            'plan_id' => $plan->id,
+            'kind' => CashFlowRowKind::Salary,
+            'label' => 'Salario',
+            'has_iva' => false,
+            'has_irpf' => false,
+            'sort_order' => 0,
+        ]);
+
+        foreach (range(1, 12) as $month) {
+            Movement::create([
+                'user_id' => $user->id,
+                'cash_flow_plan_id' => $plan->id,
+                'cash_flow_row_id' => $row->id,
+                'kind' => MovementKind::Salary,
                 'label' => 'Salario',
+                'amount' => $monthlySalary,
+                'estimated_on' => CarbonImmutable::create($plan->year, $month, 15)->toDateString(),
+                'paid_at' => null,
                 'has_iva' => false,
                 'has_irpf' => false,
-                'sort_order' => 0,
+                'source' => MovementSource::Recurring,
             ]);
-            foreach (range(1, 12) as $month) {
-                CashFlowCell::create([
-                    'row_id' => $row->id,
-                    'month' => $month,
-                    'amount' => $monthlySalary,
-                ]);
-            }
         }
-
-        $sort = 1;
-        foreach ($user->recurringCharges()->active()->get() as $charge) {
-            $row = CashFlowRow::create([
-                'plan_id' => $plan->id,
-                'kind' => CashFlowRowKind::Expense,
-                'label' => $charge->label,
-                'category_id' => $charge->category_id,
-                'has_iva' => true,
-                'has_irpf' => false,
-                'sort_order' => $sort++,
-            ]);
-
-            foreach (range(1, 12) as $month) {
-                $amount = $this->amountForMonth($charge, $month);
-                CashFlowCell::create([
-                    'row_id' => $row->id,
-                    'month' => $month,
-                    'amount' => $amount,
-                ]);
-            }
-        }
-    }
-
-    private function amountForMonth(\App\Models\RecurringCharge $charge, int $month): int
-    {
-        return match ($charge->frequency->value) {
-            'monthly' => $charge->amount,
-            'quarterly' => in_array($month, [1, 4, 7, 10], true) ? $charge->amount : 0,
-            'yearly' => $month === 1 ? $charge->amount : 0,
-            default => 0,
-        };
     }
 
     private function toCents(float|int $value): int

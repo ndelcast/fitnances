@@ -18,8 +18,7 @@ const user = computed(() => page.props.auth?.user ?? { name: 'Usuario' });
 const nav = [
     { label: 'Resumen', icon: 'pi pi-chart-line', href: '/dashboard', match: ['/dashboard'] },
     { label: 'Flujo de caja', icon: 'pi pi-table', href: '/cash-flow', match: ['/cash-flow'] },
-    { label: 'Transacciones', icon: 'pi pi-arrow-right-arrow-left', href: '/transactions', match: ['/transactions'] },
-    { label: 'Cargos recurrentes', icon: 'pi pi-replay', href: '/recurring-charges', match: ['/recurring-charges'] },
+    { label: 'Movimientos', icon: 'pi pi-arrow-right-arrow-left', href: '/movements', match: ['/movements'] },
     { label: 'Perfil fiscal', icon: 'pi pi-id-card', href: '/fiscal-profile', match: ['/fiscal-profile'] },
 ];
 

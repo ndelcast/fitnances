@@ -2,9 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Enums\ChargeFrequency;
+use App\Enums\MovementKind;
 use App\Models\FinancialProfile;
-use App\Models\RecurringCharge;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,29 +38,22 @@ class CashFlowControllerTest extends TestCase
                 ->has('incomes')
                 ->has('expenses')
                 ->has('salary.monthly', 12)
-                ->has('quarterlyTaxes.iva', 4)
-                ->has('quarterlyTaxes.irpf', 4)
+                ->has('quarterlyTaxes.ivaPaid', 4)
+                ->has('quarterlyTaxes.irpfPaid', 4)
             );
 
         $this->assertNotNull($user->cashFlowPlans()->where('year', 2026)->first());
     }
 
-    public function test_index_seed_salary_et_charges_recurrentes_a_la_creation(): void
+    public function test_index_seed_salary_a_la_creation(): void
     {
         $user = User::factory()->create();
         FinancialProfile::factory()->for($user)->create(['monthly_salary' => 220000]);
-        RecurringCharge::factory()->for($user)->create([
-            'label' => 'Alquiler',
-            'amount' => 65000,
-            'frequency' => ChargeFrequency::Monthly,
-        ]);
 
         $this->actingAs($user)->get('/cash-flow')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('salary.monthly.0', 2200)
-                ->where('expenses.0.label', 'Alquiler')
-                ->where('expenses.0.monthly.0', 650)
             );
     }
 
@@ -74,10 +66,10 @@ class CashFlowControllerTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page->where('year', 2027));
     }
 
-    public function test_update_persiste_la_grille(): void
+    public function test_update_persiste_la_grille_via_movements(): void
     {
         $user = User::factory()->create();
-        $plan = $user->cashFlowPlans()->create(['year' => 2026, 'starting_balance' => 420000]);
+        $plan = $user->cashFlowPlans()->create(['year' => 2026, 'starting_balance' => 0]);
 
         $payload = [
             'startingBalance' => 5000,
@@ -87,8 +79,10 @@ class CashFlowControllerTest extends TestCase
                     'label' => 'Acme S.L.',
                     'clientName' => 'Acme S.L.',
                     'categoryId' => null,
-                    'monthly' => [3200, 0, 3200, 0, 3200, 0, 3200, 0, 3200, 0, 3200, 0],
-                    'paid' => [true, false, true, false, false, false, false, false, false, false, false, false],
+                    'monthly' => [3200, 0, 3200, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    'paid' => [true, false, false, false, false, false, false, false, false, false, false, false],
+                    'hasIva' => true,
+                    'hasIrpf' => true,
                 ],
             ],
             'expenses' => [
@@ -97,6 +91,7 @@ class CashFlowControllerTest extends TestCase
                     'categoryId' => null,
                     'monthly' => array_fill(0, 12, 650),
                     'paid' => array_fill(0, 12, false),
+                    'hasIva' => true,
                 ],
             ],
             'salary' => [
@@ -116,16 +111,22 @@ class CashFlowControllerTest extends TestCase
 
         $plan->refresh();
         $this->assertSame(500000, $plan->starting_balance);
-        $this->assertCount(1, $plan->rows()->where('kind', 'income')->get());
-        $this->assertCount(1, $plan->rows()->where('kind', 'expense')->get());
-        $this->assertCount(1, $plan->rows()->where('kind', 'salary')->get());
-        // Seuls les trimestres marqués payés sont persistés.
-        $this->assertSame(1, $plan->quarterlyTaxes()->where('kind', 'iva')->count());
-        $this->assertSame(2, $plan->quarterlyTaxes()->where('kind', 'irpf')->count());
+        $this->assertCount(3, $plan->rows); // income + expense + salary
 
-        $expenseRow = $plan->rows()->where('kind', 'expense')->first();
-        $this->assertSame(12, $expenseRow->cells()->count());
-        $this->assertSame(65000, $expenseRow->cells()->where('month', 1)->first()->amount);
+        // 2 incomes (Ene, Mar) + 12 expenses + 12 salaries = 26 movements rattachées
+        // aux rows + 1 IVA + 2 IRPF marqués payés (kind=tax, row=null).
+        $this->assertSame(2, $plan->movements()->where('kind', MovementKind::Income->value)->count());
+        $this->assertSame(12, $plan->movements()->where('kind', MovementKind::Expense->value)->count());
+        $this->assertSame(12, $plan->movements()->where('kind', MovementKind::Salary->value)->count());
+        $this->assertSame(3, $plan->movements()->where('kind', MovementKind::Tax->value)->count());
+
+        // Premier mois cobrado.
+        $firstIncome = $plan->movements()
+            ->where('kind', MovementKind::Income->value)
+            ->orderBy('estimated_on')
+            ->first();
+        $this->assertNotNull($firstIncome->paid_at);
+        $this->assertSame(320000, $firstIncome->amount);
     }
 
     public function test_update_404_sur_un_plan_inexistant(): void

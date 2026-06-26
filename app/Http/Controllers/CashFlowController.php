@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\QuarterlyTaxKind;
-use App\Models\CashFlowPlan;
+use App\Enums\MovementKind;
 use App\Models\CashFlowRow;
+use App\Models\Movement;
 use App\Services\CashFlowPlanService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -22,7 +22,7 @@ class CashFlowController extends Controller
         $year = (int) $request->query('year', CarbonImmutable::today()->year);
 
         $plan = $this->service->forYear($user, $year);
-        $plan->load(['rows.cells', 'quarterlyTaxes']);
+        $plan->load(['rows.movements']);
         $profile = $user->financialProfile;
 
         $rowsByKind = $plan->rows->groupBy(fn (CashFlowRow $row) => $row->kind->value);
@@ -45,6 +45,13 @@ class CashFlowController extends Controller
             ->values()
             ->all();
 
+        $paidTaxes = $plan->movements()
+            ->where('kind', MovementKind::Tax->value)
+            ->whereNull('cash_flow_row_id')
+            ->paid()
+            ->get()
+            ->groupBy(fn (Movement $m) => $this->taxKey($m));
+
         return Inertia::render('FlujoCaja/Index', [
             'year' => $year,
             'startingBalance' => $plan->starting_balance / 100,
@@ -53,10 +60,10 @@ class CashFlowController extends Controller
             'expenses' => $this->mapRows($rowsByKind->get('expense', collect())),
             'salary' => $this->mapSalary($rowsByKind->get('salary', collect())->first()),
             'quarterlyTaxes' => [
-                'iva' => $this->mapTaxes($plan, QuarterlyTaxKind::Iva),
-                'irpf' => $this->mapTaxes($plan, QuarterlyTaxKind::Irpf),
-                'ivaPaid' => $this->mapTaxPaid($plan, QuarterlyTaxKind::Iva),
-                'irpfPaid' => $this->mapTaxPaid($plan, QuarterlyTaxKind::Irpf),
+                'iva' => array_fill(0, 4, 0),  // computed live côté Vue
+                'irpf' => array_fill(0, 4, 0), // idem
+                'ivaPaid' => $this->mapTaxPaid($paidTaxes, 'iva'),
+                'irpfPaid' => $this->mapTaxPaid($paidTaxes, 'irpf'),
             ],
             'taxRates' => [
                 'iva' => $profile ? (float) $profile->iva_default : 21,
@@ -109,16 +116,19 @@ class CashFlowController extends Controller
         return back()->with('success', 'Plan guardado.');
     }
 
+    /**
+     * @param  \Illuminate\Support\Collection<int, CashFlowRow>  $rows
+     */
     private function mapRows($rows, bool $withClient = false): array
     {
         return $rows->sortBy('sort_order')->values()->map(function (CashFlowRow $row) use ($withClient) {
-            $cellsByMonth = $row->cells->keyBy('month');
+            $movementsByMonth = $row->movements->keyBy(fn (Movement $m) => $m->estimated_on->month);
             $monthly = [];
             $paid = [];
             foreach (range(1, 12) as $m) {
-                $cell = $cellsByMonth->get($m);
-                $monthly[] = $cell ? $cell->amount / 100 : 0;
-                $paid[] = $cell && $cell->paid_at !== null;
+                $mv = $movementsByMonth->get($m);
+                $monthly[] = $mv ? $mv->amount / 100 : 0;
+                $paid[] = $mv && $mv->paid_at !== null;
             }
 
             $entry = [
@@ -149,13 +159,13 @@ class CashFlowController extends Controller
             ];
         }
 
-        $cellsByMonth = $row->cells->keyBy('month');
+        $movementsByMonth = $row->movements->keyBy(fn (Movement $m) => $m->estimated_on->month);
         $monthly = [];
         $paid = [];
         foreach (range(1, 12) as $m) {
-            $cell = $cellsByMonth->get($m);
-            $monthly[] = $cell ? $cell->amount / 100 : 0;
-            $paid[] = $cell && $cell->paid_at !== null;
+            $mv = $movementsByMonth->get($m);
+            $monthly[] = $mv ? $mv->amount / 100 : 0;
+            $paid[] = $mv && $mv->paid_at !== null;
         }
 
         return [
@@ -166,26 +176,23 @@ class CashFlowController extends Controller
         ];
     }
 
-    private function mapTaxes(CashFlowPlan $plan, QuarterlyTaxKind $kind): array
+    /**
+     * Devine la kind/quarter d'un Movement tax depuis son label.
+     */
+    private function taxKey(Movement $m): string
     {
-        $taxes = $plan->quarterlyTaxes
-            ->where('kind', $kind)
-            ->keyBy('quarter');
+        // Format : "IVA Q1 2026" ou "IRPF Q1 2026"
+        $parts = explode(' ', $m->label);
+        $kind = strtolower($parts[0] ?? '');
+        $quarter = isset($parts[1]) ? (int) str_replace('Q', '', $parts[1]) : 0;
 
-        return array_map(
-            fn (int $q) => isset($taxes[$q]) ? $taxes[$q]->amount / 100 : 0,
-            [1, 2, 3, 4],
-        );
+        return "{$kind}:{$quarter}";
     }
 
-    private function mapTaxPaid(CashFlowPlan $plan, QuarterlyTaxKind $kind): array
+    private function mapTaxPaid(\Illuminate\Support\Collection $grouped, string $kind): array
     {
-        $taxes = $plan->quarterlyTaxes
-            ->where('kind', $kind)
-            ->keyBy('quarter');
-
         return array_map(
-            fn (int $q) => isset($taxes[$q]) && $taxes[$q]->paid_at !== null,
+            fn (int $q) => $grouped->has("{$kind}:{$q}"),
             [1, 2, 3, 4],
         );
     }

@@ -4,16 +4,21 @@ namespace App\Services;
 
 use App\Enums\CashFlowRowKind;
 use App\Enums\QuarterlyTaxKind;
+use App\Enums\TransactionType;
 use App\Models\CashFlowCell;
 use App\Models\CashFlowPlan;
 use App\Models\CashFlowRow;
+use App\Models\FinancialProfile;
 use App\Models\QuarterlyTax;
+use App\Models\Transaction;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Gère les plans de trésorerie annuels : création par défaut
- * et sauvegarde batch de toute la grille.
+ * Gère les plans de trésorerie annuels : création par défaut,
+ * sauvegarde batch de la grille et synchronisation des Transactions
+ * dérivées (une transaction par cellule non nulle ingreso/gasto).
  */
 final class CashFlowPlanService
 {
@@ -27,22 +32,13 @@ final class CashFlowPlanService
 
             if ($plan->wasRecentlyCreated) {
                 $this->seedDefaults($user, $plan);
+                $this->syncTransactions($plan);
             }
 
             return $plan;
         });
     }
 
-    /**
-     * @param  array{
-     *   startingBalance?: float|int,
-     *   irpfExempt?: bool,
-     *   incomes?: array<int, array{id?:int,label:string,clientName?:string|null,categoryId?:int|null,monthly:array<int,float>,paid:array<int,bool>}>,
-     *   expenses?: array<int, array{id?:int,label:string,categoryId?:int|null,monthly:array<int,float>,paid:array<int,bool>}>,
-     *   salary?: array{id?:int|null,label?:string,monthly:array<int,float>,paid:array<int,bool>},
-     *   quarterlyTaxes?: array{iva:array<int,float>,irpf:array<int,float>}
-     * }  $payload
-     */
     public function save(CashFlowPlan $plan, array $payload): void
     {
         DB::transaction(function () use ($plan, $payload) {
@@ -65,7 +61,6 @@ final class CashFlowPlanService
                 $this->createRow($plan, CashFlowRowKind::Salary, $payload['salary'], $sort++);
             }
 
-            // Quarterly taxes : wipe + re-insert.
             $plan->quarterlyTaxes()->delete();
             foreach ([QuarterlyTaxKind::Iva, QuarterlyTaxKind::Irpf] as $kind) {
                 $key = $kind->value;
@@ -79,12 +74,70 @@ final class CashFlowPlanService
                     ]);
                 }
             }
+
+            $this->syncTransactions($plan->fresh(['rows.cells']));
         });
     }
 
     /**
-     * @param  array{label?:string,clientName?:string|null,categoryId?:int|null,monthly:array<int,float>,paid?:array<int,bool>}  $row
+     * Recrée les Transactions liées à ce plan à partir des cellules.
+     * Une cellule non vide (income/expense) = une Transaction. Le salaire
+     * n'est pas matérialisé (ce n'est pas un mouvement entrant/sortant
+     * vers/depuis l'État ou un tiers).
      */
+    private function syncTransactions(CashFlowPlan $plan): void
+    {
+        Transaction::where('cash_flow_plan_id', $plan->id)->delete();
+
+        $profile = $plan->user->financialProfile;
+
+        foreach ($plan->rows as $row) {
+            if ($row->kind === CashFlowRowKind::Salary) {
+                continue;
+            }
+
+            foreach ($row->cells as $cell) {
+                if ((int) $cell->amount === 0) {
+                    continue;
+                }
+
+                Transaction::create([
+                    'user_id' => $plan->user_id,
+                    'cash_flow_plan_id' => $plan->id,
+                    'category_id' => $row->category_id,
+                    'type' => $row->kind === CashFlowRowKind::Income
+                        ? TransactionType::Income
+                        : TransactionType::Expense,
+                    'amount' => $cell->amount,
+                    'iva_rate' => $this->ivaRateFor($row, $profile),
+                    'irpf_rate' => $this->irpfRateFor($row, $profile),
+                    'label' => $row->label,
+                    'occurred_on' => $cell->paid_at
+                        ? $cell->paid_at->toDateString()
+                        : CarbonImmutable::create($plan->year, $cell->month, 15)->toDateString(),
+                ]);
+            }
+        }
+    }
+
+    private function ivaRateFor(CashFlowRow $row, ?FinancialProfile $profile): float
+    {
+        if (! $row->has_iva) {
+            return 0;
+        }
+
+        return $profile ? (float) $profile->iva_default : 21.0;
+    }
+
+    private function irpfRateFor(CashFlowRow $row, ?FinancialProfile $profile): ?float
+    {
+        if ($row->kind !== CashFlowRowKind::Income) {
+            return null;
+        }
+
+        return $profile ? (float) $profile->irpf_default : 15.0;
+    }
+
     private function createRow(CashFlowPlan $plan, CashFlowRowKind $kind, array $row, int $sortOrder): void
     {
         $created = CashFlowRow::create([
@@ -133,7 +186,6 @@ final class CashFlowPlanService
             }
         }
 
-        // Projette les charges récurrentes actives (chacune = une ligne dépense).
         $sort = 1;
         foreach ($user->recurringCharges()->active()->get() as $charge) {
             $row = CashFlowRow::create([
@@ -145,8 +197,6 @@ final class CashFlowPlanService
                 'sort_order' => $sort++,
             ]);
 
-            // Approxime : pour mensuel, applique amount chaque mois.
-            // Pour quarterly, applique sur les mois 1,4,7,10. Pour yearly, sur mois 1.
             foreach (range(1, 12) as $month) {
                 $amount = $this->amountForMonth($charge, $month);
                 CashFlowCell::create([

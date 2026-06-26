@@ -38,8 +38,8 @@ class CashFlowControllerTest extends TestCase
                 ->has('incomes')
                 ->has('expenses')
                 ->has('salary.monthly', 12)
-                ->has('quarterlyTaxes.ivaPaid', 4)
-                ->has('quarterlyTaxes.irpfPaid', 4)
+                ->has('quarterlyTaxes.iva', 4)
+                ->has('quarterlyTaxes.irpf', 4)
             );
 
         $this->assertNotNull($user->cashFlowPlans()->where('year', 2026)->first());
@@ -80,7 +80,6 @@ class CashFlowControllerTest extends TestCase
                     'clientName' => 'Acme S.L.',
                     'categoryId' => null,
                     'monthly' => [3200, 0, 3200, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    'paid' => [true, false, false, false, false, false, false, false, false, false, false, false],
                     'hasIva' => true,
                     'hasIrpf' => true,
                 ],
@@ -90,18 +89,12 @@ class CashFlowControllerTest extends TestCase
                     'label' => 'Alquiler',
                     'categoryId' => null,
                     'monthly' => array_fill(0, 12, 650),
-                    'paid' => array_fill(0, 12, false),
                     'hasIva' => true,
                 ],
             ],
             'salary' => [
                 'label' => 'Salario',
                 'monthly' => array_fill(0, 12, 2000),
-                'paid' => array_fill(0, 12, false),
-            ],
-            'quarterlyTaxes' => [
-                'ivaPaid' => [true, false, false, false],
-                'irpfPaid' => [true, true, false, false],
             ],
         ];
 
@@ -113,20 +106,44 @@ class CashFlowControllerTest extends TestCase
         $this->assertSame(500000, $plan->starting_balance);
         $this->assertCount(3, $plan->rows); // income + expense + salary
 
-        // 2 incomes (Ene, Mar) + 12 expenses + 12 salaries = 26 movements rattachées
-        // aux rows + 1 IVA + 2 IRPF marqués payés (kind=tax, row=null).
+        // 2 incomes (Ene, Mar) + 12 expenses + 12 salaries = 26 movements.
         $this->assertSame(2, $plan->movements()->where('kind', MovementKind::Income->value)->count());
         $this->assertSame(12, $plan->movements()->where('kind', MovementKind::Expense->value)->count());
         $this->assertSame(12, $plan->movements()->where('kind', MovementKind::Salary->value)->count());
-        $this->assertSame(3, $plan->movements()->where('kind', MovementKind::Tax->value)->count());
 
-        // Premier mois cobrado.
         $firstIncome = $plan->movements()
             ->where('kind', MovementKind::Income->value)
             ->orderBy('estimated_on')
             ->first();
-        $this->assertNotNull($firstIncome->paid_at);
         $this->assertSame(320000, $firstIncome->amount);
+    }
+
+    public function test_update_preserve_paid_at_des_movements_existantes(): void
+    {
+        $user = User::factory()->create();
+        $plan = $user->cashFlowPlans()->create(['year' => 2026]);
+
+        // Première sauvegarde : crée une row income avec 12 movements.
+        $payload = [
+            'startingBalance' => 0,
+            'incomes' => [[
+                'label' => 'Acme',
+                'monthly' => array_fill(0, 12, 1000),
+                'hasIva' => true,
+                'hasIrpf' => true,
+            ]],
+        ];
+        $this->actingAs($user)->put('/cash-flow/2026', $payload)->assertRedirect();
+
+        // L'utilisateur marque une movement payée via /movements.
+        $movement = $plan->fresh()->movements()->first();
+        $movement->update(['paid_at' => now()]);
+
+        // Deuxième sauvegarde du plan (même payload) : on doit garder paid_at.
+        $payload['incomes'][0]['id'] = $plan->fresh()->rows->first()->id;
+        $this->actingAs($user)->put('/cash-flow/2026', $payload)->assertRedirect();
+
+        $this->assertNotNull($movement->fresh()->paid_at);
     }
 
     public function test_update_404_sur_un_plan_inexistant(): void

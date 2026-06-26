@@ -56,7 +56,6 @@ const incomesState = reactive(
         hasIva: line.hasIva ?? true,
         hasIrpf: line.hasIrpf ?? true,
         monthly: [...line.monthly],
-        paid: [...line.paid],
     })),
 );
 
@@ -67,7 +66,6 @@ const expensesState = reactive(
         categoryId: line.categoryId,
         hasIva: line.hasIva ?? true,
         monthly: [...line.monthly],
-        paid: [...line.paid],
     })),
 );
 
@@ -75,15 +73,9 @@ const salaryState = reactive({
     id: props.salary.id,
     label: props.salary.label || 'Salario',
     monthly: [...props.salary.monthly],
-    paid: [...props.salary.paid],
 });
 
-// Statut payé des taxes trimestrielles (4 booleans par kind).
-const ivaPaidState = reactive([...(props.quarterlyTaxes.ivaPaid ?? [false, false, false, false])]);
-const irpfPaidState = reactive([...(props.quarterlyTaxes.irpfPaid ?? [false, false, false, false])]);
-
 const isCurrentMonth = (i) => i === todayMonth.value;
-const isPastMonth = (i) => todayMonth.value >= 0 && i < todayMonth.value;
 
 // IVA et IRPF se paient le mois suivant la fin de chaque trimestre :
 // Q1 → Abr, Q2 → Jul, Q3 → Oct. Le Q4 est déclaré en janvier N+1 (hors année).
@@ -152,67 +144,130 @@ const taxesMonthly = (quarterly) => {
 const ivaMonthly = computed(() => taxesMonthly(ivaState.value));
 const irpfMonthly = computed(() => taxesMonthly(irpfState.value));
 
+// IRPF mensuel estimé : on lisse la valeur trimestrielle Modelo 130 sur
+// les 3 mois du trimestre (montant à provisionner chaque mois).
+const irpfMonthlyAccrual = computed(() => {
+    const arr = new Array(12).fill(0);
+    irpfState.value.forEach((quarterAmount, q) => {
+        const monthly = quarterAmount / 3;
+        for (let i = 0; i < 3; i++) {
+            arr[q * 3 + i] = monthly;
+        }
+    });
+    return arr;
+});
+
+/* ---------------------------------------------------------------
+ * Renta annuelle (IRPF réel selon barème progressif)
+ * ---------------------------------------------------------------
+ * Le Modelo 130 est une simple avance à 20 % du rendimiento. La
+ * Renta calcule l'IRPF réel selon les tranches progressives. À la
+ * fin de l'année, on régularise : si Modelo 130 < Renta, on paie
+ * la différence ; sinon Hacienda rembourse.
+ *
+ * Barème 2025 (état + autonomique général, approximation) :
+ *   0 – 12 450    19 %
+ *   12 450 – 20 200    24 %
+ *   20 200 – 35 200    30 %
+ *   35 200 – 60 000    37 %
+ *   60 000 – 300 000   45 %
+ *   > 300 000          47 %
+ *
+ * Base = rendimiento neto annuel - mínimo personal (5 550 €).
+ * (Approximation : on ignore les autres déductions pour le MVP.)
+ */
+const PERSONAL_MINIMUM = 5550;
+const IRPF_BRACKETS = [
+    { upTo: 12450, rate: 0.19 },
+    { upTo: 20200, rate: 0.24 },
+    { upTo: 35200, rate: 0.30 },
+    { upTo: 60000, rate: 0.37 },
+    { upTo: 300000, rate: 0.45 },
+    { upTo: Infinity, rate: 0.47 },
+];
+
+const applyIrpfBrackets = (base) => {
+    if (base <= 0) return 0;
+    let owed = 0;
+    let prev = 0;
+    for (const bracket of IRPF_BRACKETS) {
+        const slice = Math.min(base, bracket.upTo) - prev;
+        if (slice <= 0) break;
+        owed += slice * bracket.rate;
+        prev = bracket.upTo;
+        if (base <= bracket.upTo) break;
+    }
+    return owed;
+};
+
+// Totaux annuels HT (toutes les lignes, tous les mois).
+const annualIncomeHt = computed(() => sumQuarterHtBy(incomesState, [...Array(12).keys()], null));
+const annualExpenseHt = computed(() => sumQuarterHtBy(expensesState, [...Array(12).keys()], null));
+const annualIncomeHtWithIrpf = computed(() =>
+    sumQuarterHtBy(incomesState, [...Array(12).keys()], null, (r) => r.hasIrpf),
+);
+
+const rentaAnnual = computed(() => {
+    const irpfRetentionRate = (props.taxRates.irpf ?? 0) / 100;
+    const baseImponible = Math.max(0, annualIncomeHt.value - annualExpenseHt.value - PERSONAL_MINIMUM);
+    const rentaIrpf = applyIrpfBrackets(baseImponible);
+    const retentionsAnnual = annualIncomeHtWithIrpf.value * irpfRetentionRate;
+    const modelo130Annual = irpfState.value.reduce((s, v) => s + v, 0);
+
+    // Marginal rate approximé sur la dernière tranche atteinte.
+    let marginalRate = 0.19;
+    let cumul = 0;
+    for (const b of IRPF_BRACKETS) {
+        if (baseImponible > cumul) marginalRate = b.rate;
+        cumul = b.upTo;
+        if (baseImponible <= cumul) break;
+    }
+
+    // Restant à provisionner pour la déclaration de renta = Renta réelle
+    // - Modelo 130 déjà avancé - retenciones déjà appliquées par les clients.
+    const restanteRenta = Math.max(0, rentaIrpf - modelo130Annual - retentionsAnnual);
+
+    return {
+        baseImponible,
+        rentaIrpf,
+        marginalRate,
+        modelo130Annual,
+        retentionsAnnual,
+        restanteRenta,
+    };
+});
+
+// Provision cumulative à atteindre à la fin de chaque mois pour la renta :
+// /12 × (mois écoulés). En décembre, on doit avoir la totalité.
+const rentaMonthlyAccrual = computed(() => {
+    const monthly = rentaAnnual.value.restanteRenta / 12;
+    return new Array(12).fill(0).map((_, i) => monthly * (i + 1));
+});
+
 const sumRow = (row) => row.reduce((s, v) => s + (v || 0), 0);
 
 const incomesByMonth = computed(() =>
     months.map((_, i) => incomesState.reduce((s, l) => s + (l.monthly[i] ?? 0), 0)),
 );
-const incomesRealizedByMonth = computed(() =>
-    months.map((_, i) => incomesState.reduce((s, l) => s + (l.paid[i] ? (l.monthly[i] ?? 0) : 0), 0)),
-);
 const expensesByMonth = computed(() =>
     months.map((_, i) => expensesState.reduce((s, l) => s + (l.monthly[i] ?? 0), 0)),
 );
-const expensesPaidByMonth = computed(() =>
-    months.map((_, i) => expensesState.reduce((s, l) => s + (l.paid[i] ? (l.monthly[i] ?? 0) : 0), 0)),
-);
-
-const salaryPaidByMonth = computed(() =>
-    months.map((_, i) => (salaryState.paid[i] ? (salaryState.monthly[i] ?? 0) : 0)),
-);
-
-// Taxes payées projetées sur le mois où elles tomberaient (Q1 → Abr, etc.).
-const paidTaxesMonthly = (quarterlyAmounts, quarterlyPaid) => {
-    const arr = new Array(12).fill(0);
-    quarterlyAmounts.forEach((amount, q) => {
-        const m = quarterPaymentMonth[q];
-        if (m !== null && quarterlyPaid[q]) arr[m] = amount;
-    });
-    return arr;
-};
-const ivaPaidMonthly = computed(() => paidTaxesMonthly(ivaState.value, ivaPaidState));
-const irpfPaidMonthly = computed(() => paidTaxesMonthly(irpfState.value, irpfPaidState));
-const paidTaxesByMonth = computed(() => months.map((_, i) => ivaPaidMonthly.value[i] + irpfPaidMonthly.value[i]));
-
-const isVencido = (section, rowIdx, monthIdx) => {
-    if (!isPastMonth(monthIdx)) return false;
-    const row = section === 'incomes' ? incomesState[rowIdx] : expensesState[rowIdx];
-    const amount = row.monthly[monthIdx];
-    if (!amount) return false;
-    return !row.paid[monthIdx];
-};
 
 const taxesByMonth = computed(() => months.map((_, i) => ivaMonthly.value[i] + irpfMonthly.value[i]));
 
-// Mois → numéro de trimestre (0-3) si c'est un mois de déclaration, sinon null.
-const monthToQuarter = (monthIdx) => quarterPaymentMonth.indexOf(monthIdx);
-
-const toggleTaxPaid = (kind, monthIdx) => {
-    const q = monthToQuarter(monthIdx);
-    if (q < 0) return;
-    const state = kind === 'iva' ? ivaPaidState : irpfPaidState;
-    state[q] = !state[q];
-};
-
-// Saldo = caisse réelle : seulement ce qui est marqué payé/cobrado.
-// (incomesRealizedByMonth + expensesPaidByMonth déjà filtrés sur `paid`).
+// Projection pure : tous les montants prévus comptent dans le saldo.
+// Le saldo retire aussi 1/12 du complément Renta annuel chaque mois
+// (provision lissée pour la déclaration de mai N+1).
+// Pour suivre la réalité (paid_at), aller dans /movements.
+const rentaMonthlyDelta = computed(() => rentaAnnual.value.restanteRenta / 12);
 const monthlyBalance = computed(() =>
     months.map(
         (_, i) =>
-            incomesRealizedByMonth.value[i] -
-            expensesPaidByMonth.value[i] -
-            paidTaxesByMonth.value[i] -
-            salaryPaidByMonth.value[i],
+            incomesByMonth.value[i] -
+            expensesByMonth.value[i] -
+            taxesByMonth.value[i] -
+            (salaryState.monthly[i] ?? 0) -
+            rentaMonthlyDelta.value,
     ),
 );
 
@@ -249,7 +304,6 @@ const buildPayload = () => ({
         hasIva: r.hasIva,
         hasIrpf: r.hasIrpf,
         monthly: r.monthly.map((v) => Number(v) || 0),
-        paid: r.paid.map((p) => !!p),
     })),
     expenses: expensesState.map((r) => ({
         id: r.id,
@@ -257,17 +311,11 @@ const buildPayload = () => ({
         categoryId: r.categoryId,
         hasIva: r.hasIva,
         monthly: r.monthly.map((v) => Number(v) || 0),
-        paid: r.paid.map((p) => !!p),
     })),
     salary: {
         id: salaryState.id,
         label: salaryState.label,
         monthly: salaryState.monthly.map((v) => Number(v) || 0),
-        paid: salaryState.paid.map((p) => !!p),
-    },
-    quarterlyTaxes: {
-        ivaPaid: [...ivaPaidState],
-        irpfPaid: [...irpfPaidState],
     },
 });
 
@@ -292,7 +340,7 @@ const scheduleSave = () => {
 };
 
 // Auto-save sur tout changement profond.
-watch([incomesState, expensesState, salaryState, ivaPaidState, irpfPaidState], scheduleSave, { deep: true });
+watch([incomesState, expensesState, salaryState], scheduleSave, { deep: true });
 
 const saveStateLabel = computed(() => {
     if (saving.value) return 'Guardando...';
@@ -313,15 +361,12 @@ const goToYear = (year) => {
  * --------------------------------------------------------------- */
 const popoverRef = ref();
 const editingCell = ref(null);
-const cellForm = ref({ amount: null, paid: false });
+const cellForm = ref({ amount: null });
 
 const openCellEditor = (event, section, rowIdx, monthIdx) => {
     if (dragState.value) return;
     const row = rowFor(section, rowIdx);
-    cellForm.value = {
-        amount: row.monthly[monthIdx] || null,
-        paid: row.paid[monthIdx] ?? false,
-    };
+    cellForm.value = { amount: row.monthly[monthIdx] || null };
     editingCell.value = { section, rowIdx, monthIdx };
     popoverRef.value.show(event);
 };
@@ -337,7 +382,6 @@ const saveCellEdit = () => {
     const { section, rowIdx, monthIdx } = editingCell.value;
     const row = rowFor(section, rowIdx);
     row.monthly[monthIdx] = cellForm.value.amount || 0;
-    row.paid[monthIdx] = cellForm.value.paid;
     popoverRef.value.hide();
     editingCell.value = null;
 };
@@ -347,7 +391,6 @@ const clearCell = () => {
     const { section, rowIdx, monthIdx } = editingCell.value;
     const row = rowFor(section, rowIdx);
     row.monthly[monthIdx] = 0;
-    row.paid[monthIdx] = false;
     popoverRef.value.hide();
     editingCell.value = null;
 };
@@ -463,7 +506,6 @@ const saveNewRow = () => {
             hasIva: f.hasIva,
             hasIrpf: f.hasIrpf,
             monthly,
-            paid: new Array(12).fill(false),
         });
     } else {
         expensesState.push({
@@ -472,7 +514,6 @@ const saveNewRow = () => {
             categoryId: f.categoryId,
             hasIva: f.hasIva,
             monthly,
-            paid: new Array(12).fill(false),
         });
     }
     drawerOpen.value = false;
@@ -489,7 +530,6 @@ const deleteDialog = ref({
     sublabel: '',
     total: 0,
     filledMonths: 0,
-    realizedCount: 0,
 });
 
 const confirmDeleteRow = (event, section, rowIdx) => {
@@ -499,7 +539,6 @@ const confirmDeleteRow = (event, section, rowIdx) => {
     const sublabel = section === 'expenses' ? categoryName(row.categoryId) : '';
     const total = row.monthly.reduce((s, v) => s + (v || 0), 0);
     const filledMonths = row.monthly.filter((v) => v > 0).length;
-    const realizedCount = row.monthly.reduce((s, v, i) => s + (v > 0 && row.paid[i] ? 1 : 0), 0);
     deleteDialog.value = {
         visible: true,
         section,
@@ -508,7 +547,6 @@ const confirmDeleteRow = (event, section, rowIdx) => {
         sublabel,
         total,
         filledMonths,
-        realizedCount,
     };
 };
 
@@ -652,29 +690,16 @@ const flash = computed(() => page.props.flash);
                                 :key="monthIdx"
                                 class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-emerald-100/40"
                                 :class="[
-                                    !v && !line.paid[monthIdx] ? 'text-surface-300' : '',
+                                    !v ? 'text-surface-300' : '',
                                     isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-emerald-50/30' : '',
-                                    isVencido('incomes', rowIdx, monthIdx) ? 'bg-red-50/60' : '',
                                     isDragHighlighted('incomes', rowIdx, monthIdx) ? 'bg-emerald-200/50 ring-1 ring-inset ring-emerald-400' : '',
                                 ]"
                                 @click="openCellEditor($event, 'incomes', rowIdx, monthIdx)"
                                 @mouseenter="onCellEnter('incomes', rowIdx, monthIdx)"
                             >
-                                <span class="inline-flex items-center gap-1">
-                                    <i v-if="isVencido('incomes', rowIdx, monthIdx)" v-tooltip="'Vencido sin cobrar'" class="pi pi-exclamation-circle text-[10px] text-red-600" />
-                                    <i v-else-if="line.paid[monthIdx] && v" class="pi pi-check-circle text-[10px] text-emerald-600" />
-                                    <span :class="[isVencido('incomes', rowIdx, monthIdx) ? 'font-medium text-red-700' : '', line.paid[monthIdx] && v ? 'font-semibold text-emerald-700' : '']">
-                                        {{ formatCompact(v) }}
-                                    </span>
-                                </span>
+                                <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
                                 <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-emerald-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'incomes', rowIdx, monthIdx)" @click.stop />
                             </td>
-                        </tr>
-                        <tr class="border-b border-emerald-100">
-                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-                                <i class="pi pi-check-circle mr-1 text-xs" />Cobrado
-                            </td>
-                            <td v-for="(v, i) in incomesRealizedByMonth" :key="i" class="px-2 py-2 text-right tabular-nums text-emerald-700" :class="!v ? 'text-emerald-700/40' : ''">{{ formatCompact(v) }}</td>
                         </tr>
                         <tr class="border-b-2 border-emerald-200 bg-emerald-100/40">
                             <td class="sticky left-0 z-10 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Total previsto</td>
@@ -720,29 +745,16 @@ const flash = computed(() => page.props.flash);
                                 :key="monthIdx"
                                 class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-red-100/40"
                                 :class="[
-                                    !v && !line.paid[monthIdx] ? 'text-surface-300' : '',
+                                    !v ? 'text-surface-300' : '',
                                     isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-red-50/30' : '',
-                                    isVencido('expenses', rowIdx, monthIdx) ? 'bg-red-50/60' : '',
                                     isDragHighlighted('expenses', rowIdx, monthIdx) ? 'bg-red-200/50 ring-1 ring-inset ring-red-400' : '',
                                 ]"
                                 @click="openCellEditor($event, 'expenses', rowIdx, monthIdx)"
                                 @mouseenter="onCellEnter('expenses', rowIdx, monthIdx)"
                             >
-                                <span class="inline-flex items-center gap-1">
-                                    <i v-if="isVencido('expenses', rowIdx, monthIdx)" v-tooltip="'Vencido sin pagar'" class="pi pi-exclamation-circle text-[10px] text-red-600" />
-                                    <i v-else-if="line.paid[monthIdx] && v" class="pi pi-check-circle text-[10px] text-red-700" />
-                                    <span :class="[isVencido('expenses', rowIdx, monthIdx) ? 'font-medium text-red-700' : '', line.paid[monthIdx] && v ? 'font-semibold text-red-800' : '']">
-                                        {{ formatCompact(v) }}
-                                    </span>
-                                </span>
+                                <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
                                 <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-red-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'expenses', rowIdx, monthIdx)" @click.stop />
                             </td>
-                        </tr>
-                        <tr class="border-b border-red-100">
-                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2 text-sm text-red-700">
-                                <i class="pi pi-check-circle mr-1 text-xs" />Pagado
-                            </td>
-                            <td v-for="(v, i) in expensesPaidByMonth" :key="i" class="px-2 py-2 text-right tabular-nums text-red-700" :class="!v ? 'text-red-700/40' : ''">{{ formatCompact(v) }}</td>
                         </tr>
                         <tr class="border-b-2 border-red-200 bg-red-100/40">
                             <td class="sticky left-0 z-10 bg-red-100 px-4 py-2 font-semibold text-red-800">Total previsto</td>
@@ -764,15 +776,8 @@ const flash = computed(() => page.props.flash);
                                 v-for="(v, i) in ivaMonthly"
                                 :key="i"
                                 class="px-2 py-2 text-right tabular-nums"
-                                :class="[
-                                    !v ? 'text-surface-300' : '',
-                                    v && monthToQuarter(i) >= 0 ? 'cursor-pointer hover:bg-amber-100/40' : '',
-                                    v && ivaPaidState[monthToQuarter(i)] ? 'font-semibold text-emerald-700' : '',
-                                ]"
-                                v-tooltip.top="v && monthToQuarter(i) >= 0 ? (ivaPaidState[monthToQuarter(i)] ? 'Pagado — clic para revertir' : 'Marcar como pagado') : ''"
-                                @click="v && toggleTaxPaid('iva', i)"
+                                :class="!v ? 'text-surface-300' : ''"
                             >
-                                <i v-if="v && ivaPaidState[monthToQuarter(i)]" class="pi pi-check-circle mr-1 text-[10px]" />
                                 {{ formatCompact(v) }}
                             </td>
                         </tr>
@@ -785,15 +790,43 @@ const flash = computed(() => page.props.flash);
                                 v-for="(v, i) in irpfMonthly"
                                 :key="i"
                                 class="px-2 py-2 text-right tabular-nums"
-                                :class="[
-                                    !v ? 'text-surface-300' : '',
-                                    v && monthToQuarter(i) >= 0 ? 'cursor-pointer hover:bg-amber-100/40' : '',
-                                    v && irpfPaidState[monthToQuarter(i)] ? 'font-semibold text-emerald-700' : '',
-                                ]"
-                                v-tooltip.top="v && monthToQuarter(i) >= 0 ? (irpfPaidState[monthToQuarter(i)] ? 'Pagado — clic para revertir' : 'Marcar como pagado') : ''"
-                                @click="v && toggleTaxPaid('irpf', i)"
+                                :class="!v ? 'text-surface-300' : ''"
                             >
-                                <i v-if="v && irpfPaidState[monthToQuarter(i)]" class="pi pi-check-circle mr-1 text-[10px]" />
+                                {{ formatCompact(v) }}
+                            </td>
+                        </tr>
+                        <tr v-if="!irpfExempt" class="border-b border-surface-100 bg-amber-50/20">
+                            <td class="sticky left-0 z-10 bg-amber-50/40 px-4 py-1.5 text-xs italic text-amber-700">
+                                <i class="pi pi-info-circle mr-1 text-[10px]" />
+                                IRPF mensual a provisionar
+                                <span class="ml-1 text-[10px] font-normal text-surface-500">(Modelo 130, 1/3 del trimestre)</span>
+                            </td>
+                            <td
+                                v-for="(v, i) in irpfMonthlyAccrual"
+                                :key="i"
+                                class="px-2 py-1.5 text-right text-xs italic tabular-nums text-amber-700"
+                                :class="!v ? 'text-amber-700/40' : ''"
+                            >
+                                {{ formatCompact(v) }}
+                            </td>
+                        </tr>
+                        <tr class="border-b border-surface-100 bg-violet-50/20">
+                            <td
+                                class="sticky left-0 z-10 bg-violet-50/40 px-4 py-1.5 text-xs italic text-violet-700"
+                                v-tooltip.top="`Base imponible ${formatEuros(rentaAnnual.baseImponible)} → IRPF Renta ${formatEuros(rentaAnnual.rentaIrpf)} (tramo marginal ${Math.round(rentaAnnual.marginalRate * 100)} %). Modelo 130 anual cubre ${formatEuros(rentaAnnual.modelo130Annual)} + retenciones ${formatEuros(rentaAnnual.retentionsAnnual)}.`"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-[10px]" />
+                                Renta anual a provisionar
+                                <span class="ml-1 text-[10px] font-normal text-surface-500">
+                                    (IRPF tramo {{ Math.round(rentaAnnual.marginalRate * 100) }} %, acumulado)
+                                </span>
+                            </td>
+                            <td
+                                v-for="(v, i) in rentaMonthlyAccrual"
+                                :key="i"
+                                class="px-2 py-1.5 text-right text-xs italic tabular-nums text-violet-700"
+                                :class="!v ? 'text-violet-700/40' : ''"
+                            >
                                 {{ formatCompact(v) }}
                             </td>
                         </tr>
@@ -820,10 +853,7 @@ const flash = computed(() => page.props.flash);
                                 @click="openCellEditor($event, 'salary', 0, monthIdx)"
                                 @mouseenter="onCellEnter('salary', 0, monthIdx)"
                             >
-                                <span class="inline-flex items-center gap-1">
-                                    <i v-if="v && salaryState.paid[monthIdx]" class="pi pi-check-circle text-[10px] text-emerald-600" />
-                                    {{ formatCompact(v) }}
-                                </span>
+                                {{ formatCompact(v) }}
                                 <span
                                     v-if="v"
                                     class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-violet-600 opacity-0 transition-opacity group-hover:opacity-100"
@@ -835,11 +865,23 @@ const flash = computed(() => page.props.flash);
 
                         <!-- BALANCE -->
                         <tr class="border-b border-surface-200">
-                            <td class="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-surface-700">Saldo del mes</td>
+                            <td
+                                class="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-surface-700"
+                                v-tooltip.right="'Ingresos − gastos − salario − IVA/IRPF trimestral del mes − provisión Renta mensualizada (resto del año en mai N+1).'"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-xs text-surface-400" />
+                                Balance del mes
+                            </td>
                             <td v-for="(v, i) in monthlyBalance" :key="i" class="px-2 py-3 text-right font-semibold tabular-nums" :class="v >= 0 ? 'text-surface-700' : 'text-red-600'">{{ formatCompact(v) }}</td>
                         </tr>
                         <tr class="bg-surface-50">
-                            <td class="sticky left-0 z-10 bg-surface-50 px-4 py-3 font-bold text-surface-900">Saldo acumulado</td>
+                            <td
+                                class="sticky left-0 z-10 bg-surface-50 px-4 py-3 font-bold text-surface-900"
+                                v-tooltip.right="'Saldo inicial + suma de los balances mensuales. Lo que te quedaría en la cuenta a final de cada mes, una vez apartado todo lo que debes (impuestos pagados, provisión Renta).'"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-xs text-surface-400" />
+                                Balance acumulado
+                            </td>
                             <td v-for="(v, i) in cumulativeBalance" :key="i" class="px-2 py-3 text-right font-bold tabular-nums" :class="v >= 0 ? 'text-emerald-700' : 'text-red-700'">{{ formatCompact(v) }}</td>
                         </tr>
                     </tbody>
@@ -858,28 +900,6 @@ const flash = computed(() => page.props.flash);
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium text-surface-600">Importe (€)</label>
                     <InputNumber v-model="cellForm.amount" :minFractionDigits="0" :maxFractionDigits="2" locale="es-ES" suffix=" €" autofocus fluid @keydown.enter="saveCellEdit" />
-                </div>
-
-                <div
-                    v-if="editingCell"
-                    class="flex items-center justify-between rounded-md px-3 py-2"
-                    :class="{
-                        'bg-emerald-50': editingCell.section === 'incomes',
-                        'bg-red-50': editingCell.section === 'expenses',
-                        'bg-violet-50': editingCell.section === 'salary',
-                    }"
-                >
-                    <span
-                        class="text-sm font-medium"
-                        :class="{
-                            'text-emerald-800': editingCell.section === 'incomes',
-                            'text-red-800': editingCell.section === 'expenses',
-                            'text-violet-800': editingCell.section === 'salary',
-                        }"
-                    >
-                        {{ editingCell.section === 'incomes' ? 'Cobrado' : 'Pagado' }}
-                    </span>
-                    <ToggleSwitch v-model="cellForm.paid" />
                 </div>
 
                 <div class="flex gap-2">
@@ -984,25 +1004,12 @@ const flash = computed(() => page.props.flash);
                         </div>
                         <div>
                             <dt class="text-xs uppercase tracking-wider text-surface-500">Meses con valor</dt>
-                            <dd class="mt-0.5 font-semibold text-surface-900">
-                                {{ deleteDialog.filledMonths }}
-                                <span v-if="deleteDialog.realizedCount > 0" class="ml-1 text-xs font-normal text-emerald-600">
-                                    ({{ deleteDialog.realizedCount }} {{ deleteDialog.section === 'incomes' ? 'cobrado' : 'pagado' }}{{ deleteDialog.realizedCount > 1 ? 's' : '' }})
-                                </span>
-                            </dd>
+                            <dd class="mt-0.5 font-semibold text-surface-900">{{ deleteDialog.filledMonths }}</dd>
                         </div>
                     </dl>
                 </div>
 
-                <div v-if="deleteDialog.realizedCount > 0" class="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    <i class="pi pi-exclamation-triangle mt-0.5" />
-                    <span>
-                        Esta línea contiene movimientos ya {{ deleteDialog.section === 'incomes' ? 'cobrados' : 'pagados' }}.
-                        Si los eliminas, perderás ese histórico.
-                    </span>
-                </div>
-
-                <p v-else class="mt-3 text-xs text-surface-400">Esta acción no se puede deshacer.</p>
+                <p class="mt-3 text-xs text-surface-400">Esta acción no se puede deshacer.</p>
 
                 <div class="mt-5 flex justify-end gap-2">
                     <Button label="Cancelar" severity="secondary" outlined @click="deleteDialog.visible = false" />

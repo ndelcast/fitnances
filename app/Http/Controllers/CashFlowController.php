@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\MovementKind;
 use App\Models\CashFlowRow;
 use App\Models\Movement;
 use App\Services\CashFlowPlanService;
@@ -45,13 +44,6 @@ class CashFlowController extends Controller
             ->values()
             ->all();
 
-        $paidTaxes = $plan->movements()
-            ->where('kind', MovementKind::Tax->value)
-            ->whereNull('cash_flow_row_id')
-            ->paid()
-            ->get()
-            ->groupBy(fn (Movement $m) => $this->taxKey($m));
-
         return Inertia::render('FlujoCaja/Index', [
             'year' => $year,
             'startingBalance' => $plan->starting_balance / 100,
@@ -61,9 +53,7 @@ class CashFlowController extends Controller
             'salary' => $this->mapSalary($rowsByKind->get('salary', collect())->first()),
             'quarterlyTaxes' => [
                 'iva' => array_fill(0, 4, 0),  // computed live côté Vue
-                'irpf' => array_fill(0, 4, 0), // idem
-                'ivaPaid' => $this->mapTaxPaid($paidTaxes, 'iva'),
-                'irpfPaid' => $this->mapTaxPaid($paidTaxes, 'irpf'),
+                'irpf' => array_fill(0, 4, 0),
             ],
             'taxRates' => [
                 'iva' => $profile ? (float) $profile->iva_default : 21,
@@ -84,6 +74,7 @@ class CashFlowController extends Controller
             'startingBalance' => ['nullable', 'numeric'],
             'irpfExempt' => ['nullable', 'boolean'],
             'incomes' => ['nullable', 'array'],
+            'incomes.*.id' => ['nullable', 'integer'],
             'incomes.*.label' => ['required', 'string', 'max:255'],
             'incomes.*.clientName' => ['nullable', 'string', 'max:255'],
             'incomes.*.categoryId' => ['nullable', 'integer'],
@@ -91,24 +82,18 @@ class CashFlowController extends Controller
             'incomes.*.hasIrpf' => ['nullable', 'boolean'],
             'incomes.*.monthly' => ['required', 'array', 'size:12'],
             'incomes.*.monthly.*' => ['nullable', 'numeric'],
-            'incomes.*.paid' => ['nullable', 'array'],
             'expenses' => ['nullable', 'array'],
+            'expenses.*.id' => ['nullable', 'integer'],
             'expenses.*.label' => ['required', 'string', 'max:255'],
             'expenses.*.categoryId' => ['nullable', 'integer'],
             'expenses.*.hasIva' => ['nullable', 'boolean'],
             'expenses.*.monthly' => ['required', 'array', 'size:12'],
             'expenses.*.monthly.*' => ['nullable', 'numeric'],
-            'expenses.*.paid' => ['nullable', 'array'],
             'salary' => ['nullable', 'array'],
+            'salary.id' => ['nullable', 'integer'],
             'salary.label' => ['nullable', 'string'],
             'salary.monthly' => ['nullable', 'array', 'size:12'],
             'salary.monthly.*' => ['nullable', 'numeric'],
-            'salary.paid' => ['nullable', 'array'],
-            'quarterlyTaxes' => ['nullable', 'array'],
-            'quarterlyTaxes.ivaPaid' => ['nullable', 'array', 'size:4'],
-            'quarterlyTaxes.ivaPaid.*' => ['nullable', 'boolean'],
-            'quarterlyTaxes.irpfPaid' => ['nullable', 'array', 'size:4'],
-            'quarterlyTaxes.irpfPaid.*' => ['nullable', 'boolean'],
         ]);
 
         $this->service->save($plan, $payload);
@@ -124,11 +109,9 @@ class CashFlowController extends Controller
         return $rows->sortBy('sort_order')->values()->map(function (CashFlowRow $row) use ($withClient) {
             $movementsByMonth = $row->movements->keyBy(fn (Movement $m) => $m->estimated_on->month);
             $monthly = [];
-            $paid = [];
             foreach (range(1, 12) as $m) {
                 $mv = $movementsByMonth->get($m);
                 $monthly[] = $mv ? $mv->amount / 100 : 0;
-                $paid[] = $mv && $mv->paid_at !== null;
             }
 
             $entry = [
@@ -138,7 +121,6 @@ class CashFlowController extends Controller
                 'hasIva' => (bool) $row->has_iva,
                 'hasIrpf' => (bool) $row->has_irpf,
                 'monthly' => $monthly,
-                'paid' => $paid,
             ];
             if ($withClient) {
                 $entry['clientName'] = $row->client_name;
@@ -155,45 +137,20 @@ class CashFlowController extends Controller
                 'id' => null,
                 'label' => 'Salario',
                 'monthly' => array_fill(0, 12, 0),
-                'paid' => array_fill(0, 12, false),
             ];
         }
 
         $movementsByMonth = $row->movements->keyBy(fn (Movement $m) => $m->estimated_on->month);
         $monthly = [];
-        $paid = [];
         foreach (range(1, 12) as $m) {
             $mv = $movementsByMonth->get($m);
             $monthly[] = $mv ? $mv->amount / 100 : 0;
-            $paid[] = $mv && $mv->paid_at !== null;
         }
 
         return [
             'id' => $row->id,
             'label' => $row->label,
             'monthly' => $monthly,
-            'paid' => $paid,
         ];
-    }
-
-    /**
-     * Devine la kind/quarter d'un Movement tax depuis son label.
-     */
-    private function taxKey(Movement $m): string
-    {
-        // Format : "IVA Q1 2026" ou "IRPF Q1 2026"
-        $parts = explode(' ', $m->label);
-        $kind = strtolower($parts[0] ?? '');
-        $quarter = isset($parts[1]) ? (int) str_replace('Q', '', $parts[1]) : 0;
-
-        return "{$kind}:{$quarter}";
-    }
-
-    private function mapTaxPaid(\Illuminate\Support\Collection $grouped, string $kind): array
-    {
-        return array_map(
-            fn (int $q) => $grouped->has("{$kind}:{$q}"),
-            [1, 2, 3, 4],
-        );
     }
 }

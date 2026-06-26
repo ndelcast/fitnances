@@ -9,7 +9,7 @@ import Select from 'primevue/select';
 import InputText from 'primevue/inputtext';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
-import Drawer from 'primevue/drawer';
+import Dialog from 'primevue/dialog';
 import InputNumber from 'primevue/inputnumber';
 import DatePicker from 'primevue/datepicker';
 import SelectButton from 'primevue/selectbutton';
@@ -349,8 +349,14 @@ const flash = computed(() => page.props.flash);
             </div>
         </div>
 
-        <!-- Drawer create/edit -->
-        <Drawer v-model:visible="drawerOpen" position="right" class="!w-full md:!w-[460px]">
+        <!-- Modal create/edit -->
+        <Dialog
+            v-model:visible="drawerOpen"
+            modal
+            :style="{ width: '500px' }"
+            :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }"
+            :dismissableMask="true"
+        >
             <template #header>
                 <span class="text-lg font-semibold">
                     {{ editingId ? 'Editar transacción' : form.type === 'income' ? 'Nuevo ingreso' : 'Nuevo gasto' }}
@@ -415,7 +421,7 @@ const flash = computed(() => page.props.flash);
                     <Button type="submit" :label="editingId ? 'Guardar' : 'Crear'" :loading="saving" fluid />
                 </div>
             </form>
-        </Drawer>
+        </Dialog>
     </AppLayout>
 </template>
 

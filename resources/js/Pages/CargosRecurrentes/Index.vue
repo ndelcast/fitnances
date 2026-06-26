@@ -10,7 +10,7 @@ import InputText from 'primevue/inputtext';
 import InputNumber from 'primevue/inputnumber';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
-import Drawer from 'primevue/drawer';
+import Dialog from 'primevue/dialog';
 import ToggleSwitch from 'primevue/toggleswitch';
 import Message from 'primevue/message';
 import ConfirmPopup from 'primevue/confirmpopup';
@@ -289,7 +289,13 @@ const flash = computed(() => page.props.flash);
             </div>
         </div>
 
-        <Drawer v-model:visible="drawerOpen" position="right" class="!w-full md:!w-[420px]">
+        <Dialog
+            v-model:visible="drawerOpen"
+            modal
+            :style="{ width: '460px' }"
+            :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }"
+            :dismissableMask="true"
+        >
             <template #header>
                 <span class="text-lg font-semibold">
                     {{ editingId ? 'Editar cargo' : 'Nuevo cargo recurrente' }}
@@ -346,7 +352,7 @@ const flash = computed(() => page.props.flash);
                     <Button type="submit" :label="editingId ? 'Guardar' : 'Crear'" :loading="saving" fluid />
                 </div>
             </form>
-        </Drawer>
+        </Dialog>
     </AppLayout>
 </template>
 

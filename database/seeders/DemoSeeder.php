@@ -23,7 +23,11 @@ class DemoSeeder extends Seeder
 
         $user = User::firstOrCreate(
             ['email' => 'demo@fitnances.app'],
-            ['name' => 'Nicolas del Castillo', 'password' => Hash::make('password')],
+            [
+                'name' => 'Nicolas del Castillo',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+            ],
         );
 
         FinancialProfile::updateOrCreate(

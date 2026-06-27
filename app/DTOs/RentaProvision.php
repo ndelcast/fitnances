@@ -10,6 +10,8 @@ namespace App\DTOs;
 final readonly class RentaProvision
 {
     public function __construct(
+        public int $incomeHtAnnual,
+        public int $expenseHtAnnual,
         public int $rendimientoNetoAnnual,
         public int $baseImponible,
         public int $rentaIrpf,
@@ -18,5 +20,6 @@ final readonly class RentaProvision
         public int $retentionsAnnual,
         public int $restanteRenta,
         public int $monthlyProvision,
+        public int $expectedRefund,
     ) {}
 }

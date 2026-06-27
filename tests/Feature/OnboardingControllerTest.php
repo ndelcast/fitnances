@@ -77,6 +77,31 @@ class OnboardingControllerTest extends TestCase
         $this->assertSame(46900, $user->movements()->where('label', 'Cuota autónomos')->first()->amount);
     }
 
+    public function test_store_persiste_le_capital_inicial_en_starting_balance(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->post('/onboarding', [
+            'startingBalance' => 3000,
+            'annualRevenue' => 40000,
+            'cuotaMonthly' => 300,
+            'monthlySalary' => 1800,
+        ])->assertRedirect();
+
+        $plan = $user->cashFlowPlans()->firstOrFail();
+        $this->assertSame(300000, $plan->starting_balance);
+
+        // Second appel : doit mettre à jour le capital initial.
+        $this->actingAs($user)->post('/onboarding', [
+            'startingBalance' => 5500,
+            'annualRevenue' => 40000,
+            'cuotaMonthly' => 300,
+            'monthlySalary' => 1800,
+        ])->assertRedirect();
+
+        $this->assertSame(550000, $plan->fresh()->starting_balance);
+    }
+
     public function test_store_valide_les_montants(): void
     {
         $user = User::factory()->create();

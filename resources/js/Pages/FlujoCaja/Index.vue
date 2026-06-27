@@ -77,9 +77,15 @@ const salaryState = reactive({
 
 const isCurrentMonth = (i) => i === todayMonth.value;
 
-// IVA et IRPF se paient le mois suivant la fin de chaque trimestre :
-// Q1 → Abr, Q2 → Jul, Q3 → Oct. Le Q4 est déclaré en janvier N+1 (hors année).
-const quarterPaymentMonth = [3, 6, 9, null];
+// Distinction obligation / paiement :
+//  - L'obligation est calculée par trimestre et affichée le dernier
+//    mois du trimestre (Mar / Jun / Sep / Dic) : c'est ce que tu dois.
+//  - Le paiement effectif sort le 1ᵉʳ mois du trimestre suivant
+//    (Abr / Jul / Oct / Ene N+1) et impacte alors le balance acumulado.
+//  - Q4 est payé en enero N+1, donc hors fenêtre annuelle pour le cash,
+//    mais l'obligation reste visible sur Dic (à provisionner).
+const quarterAccrualMonth = [2, 5, 8, 11]; // dernier mes del trimestre
+const quarterPaymentMonth = [3, 6, 9, null]; // 1er mes du trimestre siguiente
 
 // Somme TTC sur une fenêtre de mois, filtrée par "con IVA" si demandé.
 const sumQuarterTtc = (rows, monthsRange, withIvaOnly = true) =>
@@ -133,16 +139,22 @@ const irpfState = computed(() => {
     });
 });
 
-const taxesMonthly = (quarterly) => {
+const mapQuarterly = (quarterly, monthMap) => {
     const arr = new Array(12).fill(0);
     quarterly.forEach((amount, q) => {
-        const m = quarterPaymentMonth[q];
+        const m = monthMap[q];
         if (m !== null) arr[m] = amount;
     });
     return arr;
 };
-const ivaMonthly = computed(() => taxesMonthly(ivaState.value));
-const irpfMonthly = computed(() => taxesMonthly(irpfState.value));
+
+// Affichage de l'obligation dans la ligne fiscale : end of quarter.
+const ivaMonthly = computed(() => mapQuarterly(ivaState.value, quarterAccrualMonth));
+const irpfMonthly = computed(() => mapQuarterly(irpfState.value, quarterAccrualMonth));
+
+// Impact sur la trésorerie : 1ᵉʳ mes du trimestre siguiente (Q4 hors année).
+const ivaPaymentMonthly = computed(() => mapQuarterly(ivaState.value, quarterPaymentMonth));
+const irpfPaymentMonthly = computed(() => mapQuarterly(irpfState.value, quarterPaymentMonth));
 
 // IRPF mensuel estimé : on lisse la valeur trimestrielle Modelo 130 sur
 // les 3 mois du trimestre (montant à provisionner chaque mois).
@@ -253,7 +265,10 @@ const expensesByMonth = computed(() =>
     months.map((_, i) => expensesState.reduce((s, l) => s + (l.monthly[i] ?? 0), 0)),
 );
 
-const taxesByMonth = computed(() => months.map((_, i) => ivaMonthly.value[i] + irpfMonthly.value[i]));
+// Ligne "Total fiscal" : somme des obligations affichées (accrual).
+const taxesAccrualByMonth = computed(() => months.map((_, i) => ivaMonthly.value[i] + irpfMonthly.value[i]));
+// Pour le balance acumulado : impact cash réel (payment timing), Q4 hors année.
+const taxesPaymentByMonth = computed(() => months.map((_, i) => ivaPaymentMonthly.value[i] + irpfPaymentMonthly.value[i]));
 
 // Projection pure : tous les montants prévus comptent dans le saldo.
 // Le saldo retire aussi 1/12 du complément Renta annuel chaque mois
@@ -265,14 +280,16 @@ const monthlyBalance = computed(() =>
         (_, i) =>
             incomesByMonth.value[i] -
             expensesByMonth.value[i] -
-            taxesByMonth.value[i] -
+            taxesPaymentByMonth.value[i] -
             (salaryState.monthly[i] ?? 0) -
             rentaMonthlyDelta.value,
     ),
 );
 
+const startingBalanceState = ref(props.startingBalance);
+
 const cumulativeBalance = computed(() => {
-    let acc = props.startingBalance;
+    let acc = startingBalanceState.value;
     return monthlyBalance.value.map((m) => {
         acc += m;
         return acc;
@@ -294,7 +311,7 @@ const lastSavedAt = ref(null);
 let saveTimer = null;
 
 const buildPayload = () => ({
-    startingBalance: props.startingBalance,
+    startingBalance: startingBalanceState.value,
     irpfExempt: props.irpfExempt,
     incomes: incomesState.map((r) => ({
         id: r.id,
@@ -340,7 +357,7 @@ const scheduleSave = () => {
 };
 
 // Auto-save sur tout changement profond.
-watch([incomesState, expensesState, salaryState], scheduleSave, { deep: true });
+watch([incomesState, expensesState, salaryState, startingBalanceState], scheduleSave, { deep: true });
 
 const saveStateLabel = computed(() => {
     if (saving.value) return 'Guardando...';
@@ -587,6 +604,20 @@ const isEditingRow = (section, rowIdx) =>
     editingRowName.value?.section === section && editingRowName.value?.rowIdx === rowIdx;
 
 const flash = computed(() => page.props.flash);
+
+/* ---------------------------------------------------------------
+ * Capital inicial editor (dialog)
+ * --------------------------------------------------------------- */
+const capitalDialog = ref({ visible: false, value: 0 });
+
+const openCapitalEditor = () => {
+    capitalDialog.value = { visible: true, value: startingBalanceState.value };
+};
+
+const saveCapital = () => {
+    startingBalanceState.value = Number(capitalDialog.value.value) || 0;
+    capitalDialog.value.visible = false;
+};
 </script>
 
 <template>
@@ -603,12 +634,27 @@ const flash = computed(() => page.props.flash);
                         <Button icon="pi pi-chevron-left" severity="secondary" outlined size="small" @click="goToYear(year - 1)" />
                         <span class="min-w-[80px] text-center text-xl font-bold text-surface-900">{{ year }}</span>
                         <Button icon="pi pi-chevron-right" severity="secondary" outlined size="small" @click="goToYear(year + 1)" />
+
+                        <button
+                            type="button"
+                            class="ml-2 inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-all hover:border-violet-400 hover:bg-violet-100"
+                            v-tooltip.bottom="'Dinero disponible al iniciar el año (colchón inicial). Click para editar.'"
+                            @click="openCapitalEditor"
+                        >
+                            <i class="pi pi-wallet text-[10px]" />
+                            Capital inicial · <span class="tabular-nums">{{ formatEuros(startingBalanceState) }}</span>
+                            <i class="pi pi-pencil text-[10px]" />
+                        </button>
+
                         <span v-if="saveStateLabel" class="ml-3 text-xs" :class="saving ? 'text-amber-600' : 'text-emerald-600'">
                             <i class="pi" :class="saving ? 'pi-spin pi-spinner' : 'pi-check'" />
                             {{ saveStateLabel }}
                         </span>
                     </div>
                     <div class="flex gap-2">
+                        <a :href="`/cash-flow/${year}/export`">
+                            <Button label="Exportar Excel" icon="pi pi-file-excel" severity="secondary" outlined size="small" />
+                        </a>
                         <Link href="/onboarding">
                             <Button label="Reajustar año" icon="pi pi-sparkles" severity="secondary" outlined size="small" />
                         </Link>
@@ -831,8 +877,14 @@ const flash = computed(() => page.props.flash);
                             </td>
                         </tr>
                         <tr class="border-b-2 border-amber-200 bg-amber-100/40">
-                            <td class="sticky left-0 z-10 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Total fiscal</td>
-                            <td v-for="(v, i) in taxesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-amber-800">{{ formatCompact(v) }}</td>
+                            <td
+                                class="sticky left-0 z-10 bg-amber-100 px-4 py-2 font-semibold text-amber-800"
+                                v-tooltip.right="'Obligación fiscal del trimestre (IVA + Modelo 130) que se devenga al cierre del trimestre. El pago efectivo cae el primer mes del trimestre siguiente (Q4 → enero N+1).'"
+                            >
+                                <i class="pi pi-info-circle mr-1 text-xs text-amber-700/60" />
+                                Total fiscal del trimestre
+                            </td>
+                            <td v-for="(v, i) in taxesAccrualByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-amber-800">{{ formatCompact(v) }}</td>
                         </tr>
 
                         <!-- SALARIO -->
@@ -867,7 +919,7 @@ const flash = computed(() => page.props.flash);
                         <tr class="border-b border-surface-200">
                             <td
                                 class="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-surface-700"
-                                v-tooltip.right="'Ingresos − gastos − salario − IVA/IRPF trimestral del mes − provisión Renta mensualizada (resto del año en mai N+1).'"
+                                v-tooltip.right="'Ingresos − gastos − salario − pago IVA/IRPF del mes (cae el primer mes del trimestre siguiente) − provisión Renta mensualizada. La obligación Q4 se paga en enero N+1: aparece arriba en diciembre pero no descuenta del balance del año.'"
                             >
                                 <i class="pi pi-info-circle mr-1 text-xs text-surface-400" />
                                 Balance del mes
@@ -877,7 +929,7 @@ const flash = computed(() => page.props.flash);
                         <tr class="bg-surface-50">
                             <td
                                 class="sticky left-0 z-10 bg-surface-50 px-4 py-3 font-bold text-surface-900"
-                                v-tooltip.right="'Saldo inicial + suma de los balances mensuales. Lo que te quedaría en la cuenta a final de cada mes, una vez apartado todo lo que debes (impuestos pagados, provisión Renta).'"
+                                v-tooltip.right="'Saldo inicial + balances mensuales. Refleja cash real proyectado. El saldo de diciembre todavía incluye la obligación Q4 que se pagará en enero N+1: para conocer el «cash realmente libre» a fin de año, resta el Q4 que ves arriba en diciembre.'"
                             >
                                 <i class="pi pi-info-circle mr-1 text-xs text-surface-400" />
                                 Balance acumulado
@@ -1016,6 +1068,50 @@ const flash = computed(() => page.props.flash);
                     <Button label="Eliminar" icon="pi pi-trash" severity="danger" @click="executeDelete" />
                 </div>
             </div>
+        </Dialog>
+
+        <!-- Modal Capital inicial -->
+        <Dialog v-model:visible="capitalDialog.visible" modal :style="{ width: '420px' }" :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }" :dismissableMask="true">
+            <template #header>
+                <span class="text-lg font-semibold">Capital inicial · {{ year }}</span>
+            </template>
+
+            <form class="flex flex-col gap-4" @submit.prevent="saveCapital">
+                <p class="text-sm text-surface-500">
+                    Dinero del que ya dispones al iniciar el año. Sirve de <strong>colchón inicial</strong> y se suma al saldo de cada mes.
+                </p>
+
+                <div class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-surface-700">Importe (€)</label>
+                    <InputNumber
+                        v-model="capitalDialog.value"
+                        :minFractionDigits="0"
+                        :maxFractionDigits="2"
+                        locale="es-ES"
+                        suffix=" €"
+                        :min="0"
+                        autofocus
+                        fluid
+                    />
+                </div>
+
+                <div class="grid grid-cols-4 gap-2">
+                    <button
+                        v-for="value in [0, 1500, 3000, 6000]"
+                        :key="value"
+                        type="button"
+                        class="rounded-lg border border-surface-200 px-2 py-1.5 text-xs font-medium text-surface-700 transition-colors hover:border-violet-400 hover:bg-violet-50"
+                        @click="capitalDialog.value = value"
+                    >
+                        {{ formatEuros(value) }}
+                    </button>
+                </div>
+
+                <div class="mt-1 flex justify-end gap-2">
+                    <Button type="button" label="Cancelar" severity="secondary" outlined @click="capitalDialog.visible = false" />
+                    <Button type="submit" label="Guardar" />
+                </div>
+            </form>
         </Dialog>
     </AppLayout>
 </template>

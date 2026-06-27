@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdvisorController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
@@ -56,7 +57,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/onboarding', [OnboardingController::class, 'show'])->name('onboarding.show');
     Route::post('/onboarding', [OnboardingController::class, 'store'])->name('onboarding.store');
 
+    Route::get('/advisor', [AdvisorController::class, 'index'])->name('advisor.index');
+    Route::post('/advisor/analyze', [AdvisorController::class, 'analyze'])->name('advisor.analyze');
+
     Route::get('/cash-flow', [CashFlowController::class, 'index'])->name('cash-flow.index');
     Route::put('/cash-flow/{year}', [CashFlowController::class, 'update'])
         ->whereNumber('year')->name('cash-flow.update');
+    Route::get('/cash-flow/{year}/export', [CashFlowController::class, 'export'])
+        ->whereNumber('year')->name('cash-flow.export');
 });

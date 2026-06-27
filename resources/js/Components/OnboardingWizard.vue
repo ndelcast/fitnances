@@ -10,21 +10,23 @@ import { formatEuros } from '@/lib/format';
 const props = defineProps({
     initial: {
         type: Object,
-        default: () => ({ annualRevenue: null, cuotaMonthly: null, monthlySalary: null }),
+        default: () => ({ startingBalance: null, annualRevenue: null, cuotaMonthly: null, monthlySalary: null }),
     },
 });
 
 const steps = [
-    { id: 1, label: 'Facturación' },
-    { id: 2, label: 'Cuota' },
-    { id: 3, label: 'Salario' },
-    { id: 4, label: 'Resumen' },
+    { id: 1, label: 'Capital' },
+    { id: 2, label: 'Facturación' },
+    { id: 3, label: 'Cuota' },
+    { id: 4, label: 'Salario' },
+    { id: 5, label: 'Resumen' },
 ];
 
 const currentStep = ref(1);
 const finishing = ref(false);
 
 const data = ref({
+    startingBalance: props.initial.startingBalance ?? 0,
     annualRevenue: props.initial.annualRevenue,
     cuotaMonthly: props.initial.cuotaMonthly,
     monthlySalary: props.initial.monthlySalary,
@@ -60,17 +62,18 @@ const maxSalarySuggestion = computed(() => {
 });
 
 const canContinue = computed(() => {
-    if (currentStep.value === 1) return !!data.value.annualRevenue && data.value.annualRevenue > 0;
-    if (currentStep.value === 2) return !!data.value.cuotaMonthly && data.value.cuotaMonthly > 0;
-    if (currentStep.value === 3) return data.value.monthlySalary !== null && data.value.monthlySalary >= 0;
+    if (currentStep.value === 1) return data.value.startingBalance !== null && data.value.startingBalance >= 0;
+    if (currentStep.value === 2) return !!data.value.annualRevenue && data.value.annualRevenue > 0;
+    if (currentStep.value === 3) return !!data.value.cuotaMonthly && data.value.cuotaMonthly > 0;
+    if (currentStep.value === 4) return data.value.monthlySalary !== null && data.value.monthlySalary >= 0;
     return true;
 });
 
 const next = () => {
-    if (currentStep.value === 1 && !data.value.cuotaMonthly) {
+    if (currentStep.value === 2 && !data.value.cuotaMonthly) {
         data.value.cuotaMonthly = cuotaSuggestion.value;
     }
-    if (currentStep.value === 2 && data.value.monthlySalary === null && maxSalarySuggestion.value) {
+    if (currentStep.value === 3 && data.value.monthlySalary === null && maxSalarySuggestion.value) {
         data.value.monthlySalary = maxSalarySuggestion.value;
     }
     currentStep.value++;
@@ -83,6 +86,7 @@ const finish = () => {
     router.post(
         '/onboarding',
         {
+            startingBalance: data.value.startingBalance,
             annualRevenue: data.value.annualRevenue,
             cuotaMonthly: data.value.cuotaMonthly,
             monthlySalary: data.value.monthlySalary,
@@ -137,8 +141,47 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
             </template>
         </div>
 
-        <!-- Step 1 : Facturación -->
+        <!-- Step 1 : Capital inicial -->
         <section v-if="currentStep === 1" class="rounded-lg border border-surface-200 bg-white p-6">
+            <h2 class="text-lg font-semibold text-surface-900">¿Con qué capital empiezas este año?</h2>
+            <p class="mt-1 text-sm text-surface-500">
+                Es el dinero del que ya dispones al iniciar el año (cuenta bancaria del negocio, ahorros disponibles).
+                Servirá de colchón inicial. Si empiezas de cero, déjalo en 0.
+            </p>
+
+            <div class="mt-5 flex flex-col gap-2">
+                <label class="text-sm font-medium text-surface-700">Capital inicial disponible (€)</label>
+                <InputNumber
+                    v-model="data.startingBalance"
+                    :minFractionDigits="0"
+                    :maxFractionDigits="2"
+                    locale="es-ES"
+                    suffix=" €"
+                    :min="0"
+                    placeholder="Ej: 3.000"
+                    fluid
+                />
+            </div>
+
+            <div class="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4">
+                <button
+                    v-for="value in [0, 1500, 3000, 6000]"
+                    :key="value"
+                    type="button"
+                    class="rounded-lg border border-surface-200 px-3 py-2 text-sm font-medium text-surface-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50"
+                    @click="data.startingBalance = value"
+                >
+                    {{ formatEuros(value) }}
+                </button>
+            </div>
+
+            <Message severity="info" size="small" variant="simple" class="mt-3">
+                Este importe se mostrará como saldo inicial en tu flujo de caja y mejorará tu colchón disponible.
+            </Message>
+        </section>
+
+        <!-- Step 2 : Facturación -->
+        <section v-if="currentStep === 2" class="rounded-lg border border-surface-200 bg-white p-6">
             <h2 class="text-lg font-semibold text-surface-900">¿Cuánto piensas facturar este año?</h2>
             <p class="mt-1 text-sm text-surface-500">
                 Incluye el total de tus facturas (base imponible, sin IVA) que esperas emitir durante el año natural.
@@ -170,8 +213,8 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
             </div>
         </section>
 
-        <!-- Step 2 : Cuota -->
-        <section v-if="currentStep === 2" class="rounded-lg border border-surface-200 bg-white p-6">
+        <!-- Step 3 : Cuota -->
+        <section v-if="currentStep === 3" class="rounded-lg border border-surface-200 bg-white p-6">
             <h2 class="text-lg font-semibold text-surface-900">¿Cuánto pagas de cuota de autónomos?</h2>
             <p class="mt-1 text-sm text-surface-500">
                 Según la facturación que has indicado, te sugerimos una cuota orientativa. Confirma o ajusta el importe real.
@@ -205,8 +248,8 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
             </Message>
         </section>
 
-        <!-- Step 3 : Salario -->
-        <section v-if="currentStep === 3" class="rounded-lg border border-surface-200 bg-white p-6">
+        <!-- Step 4 : Salario -->
+        <section v-if="currentStep === 4" class="rounded-lg border border-surface-200 bg-white p-6">
             <h2 class="text-lg font-semibold text-surface-900">¿Cuánto te quieres pagar cada mes?</h2>
             <p class="mt-1 text-sm text-surface-500">
                 Este es el importe que transferirás cada mes desde tu cuenta de negocio a tu cuenta personal.
@@ -241,8 +284,8 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
             </Message>
         </section>
 
-        <!-- Step 4 : Resumen -->
-        <section v-if="currentStep === 4" class="space-y-4">
+        <!-- Step 5 : Resumen -->
+        <section v-if="currentStep === 5" class="space-y-4">
             <div class="rounded-lg border border-surface-200 bg-white p-6">
                 <h2 class="text-lg font-semibold text-surface-900">Resumen de tu año</h2>
                 <p class="mt-1 text-sm text-surface-500">
@@ -250,6 +293,10 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
                 </p>
 
                 <dl class="mt-5 space-y-3">
+                    <div class="flex items-center justify-between border-b border-surface-100 pb-3">
+                        <dt class="text-sm text-surface-600">Capital inicial</dt>
+                        <dd class="font-semibold text-surface-900">{{ formatEuros(data.startingBalance) }}</dd>
+                    </div>
                     <div class="flex items-center justify-between border-b border-surface-100 pb-3">
                         <dt class="text-sm text-surface-600">Facturación prevista</dt>
                         <dd class="font-semibold text-surface-900">{{ formatEuros(data.annualRevenue) }}</dd>
@@ -289,7 +336,7 @@ const cuotaAnnualTotal = computed(() => (data.value.cuotaMonthly ?? 0) * 12);
             <span v-else />
 
             <Button
-                v-if="currentStep < 4"
+                v-if="currentStep < 5"
                 label="Siguiente"
                 icon="pi pi-arrow-right"
                 iconPos="right"

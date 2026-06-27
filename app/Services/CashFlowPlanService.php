@@ -137,6 +137,7 @@ final class CashFlowPlanService
                     'has_irpf' => $row->has_irpf,
                 ]);
             } else {
+                $estimatedOn = CarbonImmutable::create($plan->year, $month, 15)->toDateString();
                 Movement::create([
                     'user_id' => $plan->user_id,
                     'cash_flow_plan_id' => $plan->id,
@@ -146,7 +147,8 @@ final class CashFlowPlanService
                     'label' => $row->label,
                     'client_name' => $row->client_name,
                     'amount' => $amount,
-                    'estimated_on' => CarbonImmutable::create($plan->year, $month, 15)->toDateString(),
+                    'issued_on' => $movementKind === MovementKind::Income ? $estimatedOn : null,
+                    'estimated_on' => $estimatedOn,
                     'paid_at' => null,
                     'has_iva' => $row->has_iva,
                     'has_irpf' => $row->has_irpf,

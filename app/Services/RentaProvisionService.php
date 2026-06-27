@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\DTOs\RentaProvision;
 use App\Enums\MovementKind;
-use App\Models\FinancialProfile;
 use App\Models\Movement;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -60,10 +59,14 @@ final class RentaProvisionService
         $modelo130Annual = (int) round($rendimientoNeto * self::MODELO_130_RATE);
         $retentionsAnnual = (int) round($incomeHtWithIrpf * $defaultIrpfRate);
 
-        $restanteRenta = max(0, $rentaIrpf - $modelo130Annual - $retentionsAnnual);
+        $diff = $rentaIrpf - $modelo130Annual - $retentionsAnnual;
+        $restanteRenta = max(0, $diff);
+        $expectedRefund = max(0, -$diff);
         $monthlyProvision = (int) round($restanteRenta / 12);
 
         return new RentaProvision(
+            incomeHtAnnual: $incomeHt,
+            expenseHtAnnual: $expenseHt,
             rendimientoNetoAnnual: $rendimientoNeto,
             baseImponible: $baseImponible,
             rentaIrpf: $rentaIrpf,
@@ -72,6 +75,7 @@ final class RentaProvisionService
             retentionsAnnual: $retentionsAnnual,
             restanteRenta: $restanteRenta,
             monthlyProvision: $monthlyProvision,
+            expectedRefund: $expectedRefund,
         );
     }
 

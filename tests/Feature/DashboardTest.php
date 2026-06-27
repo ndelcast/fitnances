@@ -28,16 +28,15 @@ class DashboardTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('Dashboard')
                 ->where('auth.user.name', 'Nicolas del Castillo')
-                ->has('headline')
-                ->has('available')
-                ->has('cash')
-                ->has('provisions.iva')
-                ->has('provisions.irpf')
-                ->has('provisions.total')
+                ->has('money.provisionsTotal')
+                ->has('provisions.iva.amount')
+                ->has('provisions.irpfModelo130.amount')
+                ->has('provisions.rentaAccrued.amount')
+                ->has('health.globalScore')
+                ->has('health.metrics', 3)
+                ->has('renta.rentaIrpf')
                 ->has('forecast.projectedBalance')
                 ->has('upcomingDeadlines.0.modelo')
-                ->has('upcomingDeadlines.0.amount')
-                ->has('upcomingDeadlines.0.daysLeft')
             );
     }
 }

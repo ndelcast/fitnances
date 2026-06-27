@@ -19,6 +19,7 @@ const nav = [
     { label: 'Resumen', icon: 'pi pi-chart-line', href: '/dashboard', match: ['/dashboard'] },
     { label: 'Flujo de caja', icon: 'pi pi-table', href: '/cash-flow', match: ['/cash-flow'] },
     { label: 'Movimientos', icon: 'pi pi-arrow-right-arrow-left', href: '/movements', match: ['/movements'] },
+    { label: 'Consejero IA', icon: 'pi pi-microchip-ai', href: '/advisor', match: ['/advisor'] },
     { label: 'Perfil fiscal', icon: 'pi pi-id-card', href: '/fiscal-profile', match: ['/fiscal-profile'] },
 ];
 

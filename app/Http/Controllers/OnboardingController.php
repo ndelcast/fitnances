@@ -24,10 +24,14 @@ class OnboardingController extends Controller
 
     public function show(Request $request): Response
     {
-        $profile = $request->user()->financialProfile;
+        $user = $request->user();
+        $profile = $user->financialProfile;
+        $currentYear = CarbonImmutable::today()->year;
+        $plan = $user->cashFlowPlans()->where('year', $currentYear)->first();
 
         return Inertia::render('Asistente/Index', [
             'initial' => [
+                'startingBalance' => $plan?->starting_balance ? $plan->starting_balance / 100 : null,
                 'annualRevenue' => null,
                 'cuotaMonthly' => $profile?->cuota_monthly ? $profile->cuota_monthly / 100 : null,
                 'monthlySalary' => $profile?->monthly_salary ? $profile->monthly_salary / 100 : null,
@@ -51,11 +55,16 @@ class OnboardingController extends Controller
             $this->defaultCategories->for($user);
 
             $cuotaAmount = (int) round(((float) $data['cuotaMonthly']) * 100);
+            $startingBalance = (int) round(((float) ($data['startingBalance'] ?? 0)) * 100);
             $year = CarbonImmutable::today()->year;
             $plan = $user->cashFlowPlans()->firstOrCreate(
                 ['year' => $year],
-                ['starting_balance' => 0, 'irpf_exempt' => false],
+                ['starting_balance' => $startingBalance, 'irpf_exempt' => false],
             );
+            // Si le plan existait déjà, on met à jour le capital initial.
+            if (! $plan->wasRecentlyCreated) {
+                $plan->update(['starting_balance' => $startingBalance]);
+            }
 
             // Crée (ou met à jour) la row Cuota autónomos avec 12 movements.
             $cuotaCategory = $user->categories()

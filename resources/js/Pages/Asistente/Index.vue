@@ -6,7 +6,7 @@ import OnboardingWizard from '@/Components/OnboardingWizard.vue';
 defineProps({
     initial: {
         type: Object,
-        default: () => ({ annualRevenue: null, cuotaMonthly: null, monthlySalary: null }),
+        default: () => ({ startingBalance: null, annualRevenue: null, cuotaMonthly: null, monthlySalary: null }),
     },
 });
 </script>

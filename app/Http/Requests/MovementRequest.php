@@ -21,6 +21,7 @@ class MovementRequest extends FormRequest
             'label' => ['required', 'string', 'max:255'],
             'client_name' => ['nullable', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0.01'],
+            'issued_on' => ['nullable', 'date'],
             'estimated_on' => ['required', 'date'],
             'category_id' => [
                 'nullable', 'integer',

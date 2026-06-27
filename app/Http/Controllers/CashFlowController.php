@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\CashFlowExporter;
 use App\Models\CashFlowRow;
 use App\Models\Movement;
 use App\Services\CashFlowPlanService;
@@ -10,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CashFlowController extends Controller
 {
@@ -99,6 +101,13 @@ class CashFlowController extends Controller
         $this->service->save($plan, $payload);
 
         return back()->with('success', 'Plan guardado.');
+    }
+
+    public function export(Request $request, int $year, CashFlowExporter $exporter): StreamedResponse
+    {
+        $plan = $request->user()->cashFlowPlans()->where('year', $year)->firstOrFail();
+
+        return $exporter->downloadResponse($plan);
     }
 
     /**

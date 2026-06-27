@@ -14,6 +14,7 @@ class OnboardingRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'startingBalance' => ['nullable', 'numeric', 'min:0'],
             'annualRevenue' => ['required', 'numeric', 'min:0'],
             'cuotaMonthly' => ['required', 'numeric', 'min:0'],
             'monthlySalary' => ['required', 'numeric', 'min:0'],

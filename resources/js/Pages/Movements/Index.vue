@@ -78,6 +78,17 @@ const filterPaid = ref(null);
 const filterCategoryId = ref(null);
 const filterSearch = ref('');
 
+// Pré-applique des filtres depuis les query params (ex: /movements?kind=income&paid=false)
+if (typeof window !== 'undefined') {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.has('kind')) filterType.value = qs.get('kind');
+    if (qs.has('status')) filterStatus.value = qs.get('status');
+    if (qs.has('paid')) {
+        const v = qs.get('paid');
+        filterPaid.value = v === 'true' ? true : v === 'false' ? false : null;
+    }
+}
+
 const categoryOptionsForFilter = computed(() => [
     { label: 'Todas las categorías', value: null },
     ...categoriesState.map((c) => ({ label: c.name, value: c.id })),
@@ -120,6 +131,7 @@ function emptyForm() {
         kind: 'expense',
         label: '',
         category_id: null,
+        issued_on: null,
         estimated_on: new Date(),
         amount: null,
         has_iva: true,
@@ -149,6 +161,7 @@ const openCreate = (kind = 'expense') => {
     form.value.kind = kind;
     if (kind === 'income') {
         form.value.has_irpf = true;
+        form.value.issued_on = new Date();
         form.value.estimated_on = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     } else {
         form.value.has_irpf = false;
@@ -162,6 +175,7 @@ const openEdit = (row) => {
         kind: row.kind,
         label: row.label,
         category_id: row.category_id,
+        issued_on: row.issued_on ? new Date(row.issued_on) : null,
         estimated_on: new Date(row.estimated_on),
         amount: row.amount,
         has_iva: row.has_iva ?? true,
@@ -173,6 +187,8 @@ const openEdit = (row) => {
     drawerOpen.value = true;
 };
 
+const toISO = (d) => (d instanceof Date ? d.toISOString().split('T')[0] : d);
+
 const buildPayload = () => ({
     kind: form.value.kind,
     label: form.value.label,
@@ -183,10 +199,8 @@ const buildPayload = () => ({
     iva_rate: form.value.has_iva ? form.value.iva_rate : null,
     irpf_rate: form.value.kind === 'income' && form.value.has_irpf ? form.value.irpf_rate : null,
     paid: form.value.paid,
-    estimated_on:
-        form.value.estimated_on instanceof Date
-            ? form.value.estimated_on.toISOString().split('T')[0]
-            : form.value.estimated_on,
+    issued_on: form.value.kind === 'income' && form.value.issued_on ? toISO(form.value.issued_on) : null,
+    estimated_on: toISO(form.value.estimated_on),
 });
 
 const save = () => {
@@ -445,9 +459,19 @@ const flash = computed(() => page.props.flash);
                         <InputNumber id="amount" v-model="form.amount" :minFractionDigits="2" :maxFractionDigits="2" locale="es-ES" fluid />
                     </div>
                     <div class="flex flex-col gap-2">
-                        <label class="text-sm font-medium text-surface-700">Fecha</label>
+                        <label class="text-sm font-medium text-surface-700">
+                            {{ form.kind === 'income' ? 'Fecha estimada de cobro' : 'Fecha' }}
+                        </label>
                         <DatePicker v-model="form.estimated_on" dateFormat="dd/mm/yy" fluid />
                     </div>
+                </div>
+
+                <div v-if="form.kind === 'income'" class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-surface-700">Fecha de emisión de la factura</label>
+                    <DatePicker v-model="form.issued_on" dateFormat="dd/mm/yy" fluid :showClear="true" />
+                    <p class="text-xs text-surface-500">
+                        Para calcular el DSO (días entre emisión y cobro). Si la dejas vacía no contará en la media.
+                    </p>
                 </div>
 
                 <div class="flex flex-col gap-2">

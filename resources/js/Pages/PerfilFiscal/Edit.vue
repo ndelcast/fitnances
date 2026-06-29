@@ -78,8 +78,6 @@ const save = () => {
 
     <AppLayout title="Perfil fiscal">
         <div class="mx-auto max-w-4xl space-y-6">
-            <Message v-if="flash?.success" severity="success" :closable="true">{{ flash.success }}</Message>
-
             <p class="text-sm text-surface-500">
                 Configura tu régimen fiscal para que Fitnances calcule correctamente tus provisiones de IVA, IRPF y cuota.
             </p>
@@ -154,7 +152,8 @@ const save = () => {
                     </div>
                 </section>
 
-                <div class="flex justify-end gap-3">
+                <div class="flex items-center justify-end gap-3">
+                    <Message v-if="flash?.success" severity="success" size="small" :closable="false" class="!my-0">{{ flash.success }}</Message>
                     <Button type="submit" label="Guardar perfil" icon="pi pi-save" :loading="saving" />
                 </div>
             </form>

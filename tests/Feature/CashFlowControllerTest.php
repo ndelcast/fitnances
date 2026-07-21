@@ -118,6 +118,56 @@ class CashFlowControllerTest extends TestCase
         $this->assertSame(320000, $firstIncome->amount);
     }
 
+    public function test_update_persiste_la_recurrence_sur_les_rows(): void
+    {
+        $user = User::factory()->create();
+        $plan = $user->cashFlowPlans()->create(['year' => 2026, 'starting_balance' => 0]);
+
+        $recurringMonthly = array_fill(0, 12, 0);
+        $recurringMonthly[2] = 400; // Mar : hosting annuel
+
+        $payload = [
+            'startingBalance' => 0,
+            'incomes' => [
+                [
+                    'label' => 'Hosting Acme',
+                    'clientName' => 'Hosting Acme',
+                    'monthly' => $recurringMonthly,
+                    'hasIva' => true,
+                    'hasIrpf' => true,
+                    'isRecurring' => true,
+                    'recurrenceInterval' => 12,
+                    'recurrenceStartMonth' => 3,
+                    'recurrenceEndMonth' => 12,
+                ],
+                [
+                    'label' => 'Puntual S.L.',
+                    'clientName' => 'Puntual S.L.',
+                    'monthly' => [0, 1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    'hasIva' => true,
+                    'hasIrpf' => true,
+                    'isRecurring' => false,
+                ],
+            ],
+        ];
+
+        $this->actingAs($user)->put('/cash-flow/2026', $payload)->assertRedirect();
+
+        $rows = $plan->fresh()->rows->keyBy('label');
+
+        $recurring = $rows->get('Hosting Acme');
+        $this->assertTrue($recurring->is_recurring);
+        $this->assertSame(12, $recurring->recurrence_interval);
+        $this->assertSame(3, $recurring->recurrence_start_month);
+        $this->assertSame(12, $recurring->recurrence_end_month);
+
+        $oneOff = $rows->get('Puntual S.L.');
+        $this->assertFalse($oneOff->is_recurring);
+        $this->assertNull($oneOff->recurrence_interval);
+        $this->assertNull($oneOff->recurrence_start_month);
+        $this->assertNull($oneOff->recurrence_end_month);
+    }
+
     public function test_update_preserve_paid_at_des_movements_existantes(): void
     {
         $user = User::factory()->create();

@@ -48,6 +48,13 @@ const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', '
 const today = new Date();
 const todayMonth = computed(() => (props.year === today.getFullYear() ? today.getMonth() : -1));
 
+const recurrenceOf = (line) => ({
+    isRecurring: line.isRecurring ?? false,
+    recurrenceInterval: line.recurrenceInterval ?? null,
+    recurrenceStartMonth: line.recurrenceStartMonth ?? null,
+    recurrenceEndMonth: line.recurrenceEndMonth ?? null,
+});
+
 const incomesState = reactive(
     props.incomes.map((line) => ({
         id: line.id,
@@ -55,6 +62,7 @@ const incomesState = reactive(
         categoryId: line.categoryId,
         hasIva: line.hasIva ?? true,
         hasIrpf: line.hasIrpf ?? true,
+        ...recurrenceOf(line),
         monthly: [...line.monthly],
     })),
 );
@@ -65,6 +73,7 @@ const expensesState = reactive(
         label: line.label,
         categoryId: line.categoryId,
         hasIva: line.hasIva ?? true,
+        ...recurrenceOf(line),
         monthly: [...line.monthly],
     })),
 );
@@ -320,6 +329,7 @@ const buildPayload = () => ({
         categoryId: r.categoryId,
         hasIva: r.hasIva,
         hasIrpf: r.hasIrpf,
+        ...recurrenceOf(r),
         monthly: r.monthly.map((v) => Number(v) || 0),
     })),
     expenses: expensesState.map((r) => ({
@@ -327,6 +337,7 @@ const buildPayload = () => ({
         label: r.label,
         categoryId: r.categoryId,
         hasIva: r.hasIva,
+        ...recurrenceOf(r),
         monthly: r.monthly.map((v) => Number(v) || 0),
     })),
     salary: {
@@ -490,6 +501,9 @@ function emptyNewRow() {
         amount: null,
         mode: 'monthly',
         singleMonth: 0,
+        interval: 12,
+        startMonth: 0,
+        endMonth: 11,
     };
 }
 
@@ -501,20 +515,43 @@ const openNewRow = (section) => {
 
 const modeOptions = [
     { label: 'Todos los meses', value: 'monthly' },
+    { label: 'Cada X meses', value: 'every' },
     { label: 'Un mes concreto', value: 'single' },
 ];
 
 const monthOptions = months.map((m, i) => ({ label: m, value: i }));
 
+const intervalOptions = [2, 3, 4, 6, 12].map((n) => ({
+    label: n === 12 ? 'Cada año' : `Cada ${n} meses`,
+    value: n,
+}));
+
 const saveNewRow = () => {
     const f = newRowForm.value;
     if (!f.label || !f.amount) return;
+    if (f.mode === 'every' && f.endMonth < f.startMonth) return;
+
     const monthly = new Array(12).fill(0);
     if (f.mode === 'monthly') {
         for (let i = 0; i < 12; i++) monthly[i] = f.amount;
+    } else if (f.mode === 'every') {
+        for (let i = f.startMonth; i <= f.endMonth; i += f.interval) monthly[i] = f.amount;
     } else {
         monthly[f.singleMonth] = f.amount;
     }
+
+    // 'monthly' est une récurrence mensuelle sur l'année entière ;
+    // 'single' est ponctuel. Mois persistés en 1-12 côté backend.
+    const recurrence =
+        f.mode === 'single'
+            ? { isRecurring: false, recurrenceInterval: null, recurrenceStartMonth: null, recurrenceEndMonth: null }
+            : {
+                  isRecurring: true,
+                  recurrenceInterval: f.mode === 'monthly' ? 1 : f.interval,
+                  recurrenceStartMonth: (f.mode === 'monthly' ? 0 : f.startMonth) + 1,
+                  recurrenceEndMonth: (f.mode === 'monthly' ? 11 : f.endMonth) + 1,
+              };
+
     if (drawerSection.value === 'incomes') {
         incomesState.push({
             id: null,
@@ -522,6 +559,7 @@ const saveNewRow = () => {
             categoryId: f.categoryId,
             hasIva: f.hasIva,
             hasIrpf: f.hasIrpf,
+            ...recurrence,
             monthly,
         });
     } else {
@@ -530,6 +568,7 @@ const saveNewRow = () => {
             label: f.label,
             categoryId: f.categoryId,
             hasIva: f.hasIva,
+            ...recurrence,
             monthly,
         });
     }
@@ -1002,6 +1041,26 @@ const saveCapital = () => {
                     <label class="text-sm font-medium text-surface-700">Mes</label>
                     <Select v-model="newRowForm.singleMonth" :options="monthOptions" optionLabel="label" optionValue="value" fluid />
                 </div>
+
+                <template v-if="newRowForm.mode === 'every'">
+                    <div class="flex flex-col gap-2">
+                        <label class="text-sm font-medium text-surface-700">Intervalo</label>
+                        <Select v-model="newRowForm.interval" :options="intervalOptions" optionLabel="label" optionValue="value" fluid />
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="flex flex-col gap-2">
+                            <label class="text-sm font-medium text-surface-700">Mes de inicio</label>
+                            <Select v-model="newRowForm.startMonth" :options="monthOptions" optionLabel="label" optionValue="value" fluid />
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <label class="text-sm font-medium text-surface-700">Mes de fin</label>
+                            <Select v-model="newRowForm.endMonth" :options="monthOptions" optionLabel="label" optionValue="value" fluid />
+                        </div>
+                    </div>
+                    <p v-if="newRowForm.endMonth < newRowForm.startMonth" class="text-xs text-red-600">
+                        El mes de fin debe ser posterior al mes de inicio.
+                    </p>
+                </template>
 
                 <div class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
                     <div>

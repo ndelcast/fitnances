@@ -1,13 +1,13 @@
-# [PROJECT_NAME] Claude Code Instructions
+# Fitnances Claude Code Instructions
 
 ## Git Workflow (OBLIGATOIRE)
 
 ### Branch Naming Convention
 
 ```
-feat/[PREFIX]-XXX/short-description
-fix/[PREFIX]-XXX/short-description
-refactor/[PREFIX]-XXX/short-description
+feat/FT-XXX/short-description
+fix/FT-XXX/short-description
+refactor/FT-XXX/short-description
 ```
 
 ### PR Creation Process
@@ -15,7 +15,7 @@ refactor/[PREFIX]-XXX/short-description
 1. **Create branch** from `develop`:
    ```bash
    git checkout develop && git pull
-   git checkout -b feat/[PREFIX]-XXX/description
+   git checkout -b feat/FT-XXX/description
    ```
 
 2. **Commit format**:
@@ -27,7 +27,7 @@ refactor/[PREFIX]-XXX/short-description
 
 3. **Create PR** with `gh pr create`:
    ```bash
-   gh pr create --base develop --title "feat([PREFIX]-XXX): Title" --body "..."
+   gh pr create --base develop --title "feat(FT-XXX): Title" --body "..."
    ```
 
 ---
@@ -63,7 +63,7 @@ make fresh / make seed / make migrate / make test / make lint / make fix / make 
 
 ## ProdPlanner MCP
 
-Project ID: [PRODPLANNER_ID]
+Project ID: 23 (Fitnances, préfixe tickets FT)
 
 If MCP connection fails with "No session" error:
 1. Check environment variables: `PRODPLANNER_CLIENT_ID`, `PRODPLANNER_CLIENT_SECRET`

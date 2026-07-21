@@ -108,6 +108,7 @@ class DashboardController extends Controller
                 'retentionsAnnual' => $this->euros($renta->retentionsAnnual),
                 'restanteRenta' => $this->euros($renta->restanteRenta),
                 'monthlyProvision' => $this->euros($renta->monthlyProvision),
+                'expectedRefund' => $this->euros($renta->expectedRefund),
             ],
             'forecast' => [
                 'startingCash' => $this->euros($forecast->startingCash),

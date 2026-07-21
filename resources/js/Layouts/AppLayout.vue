@@ -92,7 +92,7 @@ const resendVerification = () => {
             <div class="flex h-16 w-full items-center justify-center border-b border-surface-200">
                 <div
                     v-tooltip.right="'Fitnances'"
-                    class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white"
+                    class="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-600 text-white"
                 >
                     <i class="pi pi-wallet text-sm" />
                 </div>
@@ -107,7 +107,7 @@ const resendVerification = () => {
                     class="flex h-10 w-10 items-center justify-center rounded-lg transition-colors"
                     :class="
                         isActive(item)
-                            ? 'bg-emerald-50 text-emerald-700'
+                            ? 'bg-violet-50 text-violet-700'
                             : 'text-surface-500 hover:bg-surface-100 hover:text-surface-900'
                     "
                     @click="mobileOpen = false"
@@ -125,7 +125,7 @@ const resendVerification = () => {
                     class="flex h-10 w-10 items-center justify-center rounded-lg transition-colors"
                     :class="
                         isActive(item)
-                            ? 'bg-emerald-50 text-emerald-700'
+                            ? 'bg-violet-50 text-violet-700'
                             : 'text-surface-500 hover:bg-surface-100 hover:text-surface-900'
                     "
                     @click="mobileOpen = false"
@@ -170,7 +170,7 @@ const resendVerification = () => {
                     class="flex items-center gap-2 rounded-full p-1 transition-colors hover:bg-surface-100"
                     @click="toggleUserMenu"
                 >
-                    <Avatar :label="initials" shape="circle" class="!bg-emerald-100 !text-emerald-700" size="normal" />
+                    <Avatar :label="initials" shape="circle" class="!bg-violet-100 !text-violet-700" size="normal" />
                     <span class="hidden text-sm font-medium text-surface-700 md:inline">{{ user.name }}</span>
                     <i class="pi pi-chevron-down hidden text-xs text-surface-500 md:inline" />
                 </button>
@@ -213,7 +213,7 @@ const resendVerification = () => {
         >
             <template #header>
                 <div class="flex items-center gap-3">
-                    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
                         <i class="pi pi-sparkles" />
                     </span>
                     <div>

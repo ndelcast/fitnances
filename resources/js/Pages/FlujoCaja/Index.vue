@@ -55,8 +55,13 @@ const recurrenceOf = (line) => ({
     recurrenceEndMonth: line.recurrenceEndMonth ?? null,
 });
 
+// Ordre au chargement : récurrentes d'abord, puis alphabétique (FT-1042).
+const byRecurringThenLabel = (a, b) =>
+    Number(b.isRecurring ?? false) - Number(a.isRecurring ?? false) ||
+    (a.clientName || a.label || '').localeCompare(b.clientName || b.label || '', 'es', { sensitivity: 'base' });
+
 const incomesState = reactive(
-    props.incomes.map((line) => ({
+    [...props.incomes].sort(byRecurringThenLabel).map((line) => ({
         id: line.id,
         label: line.clientName || line.label,
         categoryId: line.categoryId,
@@ -68,7 +73,7 @@ const incomesState = reactive(
 );
 
 const expensesState = reactive(
-    props.expenses.map((line) => ({
+    [...props.expenses].sort(byRecurringThenLabel).map((line) => ({
         id: line.id,
         label: line.label,
         categoryId: line.categoryId,
@@ -266,6 +271,41 @@ const rentaMonthlyAccrual = computed(() => {
 });
 
 const sumRow = (row) => row.reduce((s, v) => s + (v || 0), 0);
+
+/* ---------------------------------------------------------------
+ * Groupe RECURRENTES (FT-1042)
+ * --------------------------------------------------------------- */
+const recurringCollapsed = reactive({ incomes: false, expenses: false });
+
+const groupEntries = (state) => {
+    const entries = state.map((line, idx) => ({ line, idx }));
+    return {
+        recurring: entries.filter((e) => e.line.isRecurring),
+        oneOff: entries.filter((e) => !e.line.isRecurring),
+    };
+};
+const incomeGroups = computed(() => groupEntries(incomesState));
+const expenseGroups = computed(() => groupEntries(expensesState));
+const groupsFor = (section) => (section === 'incomes' ? incomeGroups.value : expenseGroups.value);
+
+// Lignes rendues d'une section : récurrentes (si dépliées), séparateur,
+// puis ponctuelles. `idx` reste l'index d'origine dans le state, utilisé
+// par l'édition de cellule, le drag, le rename et la suppression.
+const sectionRows = (section) => {
+    const groups = groupsFor(section);
+    const items = [];
+    if (groups.recurring.length && !recurringCollapsed[section]) {
+        items.push(...groups.recurring.map((e) => ({ type: 'row', ...e })));
+    }
+    if (groups.recurring.length && groups.oneOff.length) {
+        items.push({ type: 'divider', label: section === 'incomes' ? 'Otras facturas' : 'Gastos casuales' });
+    }
+    items.push(...groups.oneOff.map((e) => ({ type: 'row', ...e })));
+    return items;
+};
+
+const recurringTotals = (section) =>
+    months.map((_, m) => groupsFor(section).recurring.reduce((s, e) => s + (Number(e.line.monthly[m]) || 0), 0));
 
 const incomesByMonth = computed(() =>
     months.map((_, i) => incomesState.reduce((s, l) => s + (l.monthly[i] ?? 0), 0)),
@@ -526,6 +566,8 @@ const intervalOptions = [2, 3, 4, 6, 12].map((n) => ({
     value: n,
 }));
 
+const editIntervalOptions = [{ label: 'Cada mes', value: 1 }, ...intervalOptions];
+
 const saveNewRow = () => {
     const f = newRowForm.value;
     if (!f.label || !f.amount) return;
@@ -642,6 +684,83 @@ const saveRowName = () => {
 const isEditingRow = (section, rowIdx) =>
     editingRowName.value?.section === section && editingRowName.value?.rowIdx === rowIdx;
 
+/* ---------------------------------------------------------------
+ * Edición de ficha (FT-1041)
+ * ---------------------------------------------------------------
+ * Édite la config d'une row : nombre, IVA/IRPF, recurrencia, importe.
+ * Convention validée : si le patrón de récurrence ou l'importe change,
+ * seules les cellules des MOIS FUTURS sont réécrites — les mois passés
+ * (et leurs movements, dont paid_at) restent intacts.
+ */
+const editRowDialog = ref({ visible: false, section: null, rowIdx: null });
+const editRowForm = ref(null);
+let editRowInitialPattern = null;
+
+const monthIsFuture = (m) =>
+    props.year > today.getFullYear() || (props.year === today.getFullYear() && m > today.getMonth());
+
+const recurrencePatternOf = (f) => ({
+    isRecurring: f.isRecurring,
+    interval: f.interval,
+    startMonth: f.startMonth,
+    endMonth: f.endMonth,
+    amount: f.amount,
+});
+
+const openRowEditor = (section, rowIdx) => {
+    const row = rowFor(section, rowIdx);
+    const amount =
+        row.monthly.find((v, m) => monthIsFuture(m) && v > 0) ?? row.monthly.find((v) => v > 0) ?? null;
+    editRowForm.value = {
+        label: row.label,
+        categoryId: row.categoryId ?? null,
+        hasIva: row.hasIva,
+        hasIrpf: row.hasIrpf ?? true,
+        isRecurring: row.isRecurring,
+        interval: row.recurrenceInterval ?? 1,
+        startMonth: (row.recurrenceStartMonth ?? 1) - 1,
+        endMonth: (row.recurrenceEndMonth ?? 12) - 1,
+        amount,
+    };
+    editRowInitialPattern = JSON.stringify(recurrencePatternOf(editRowForm.value));
+    editRowDialog.value = { visible: true, section, rowIdx };
+};
+
+const editRowFromCell = () => {
+    if (!editingCell.value) return;
+    const { section, rowIdx } = editingCell.value;
+    popoverRef.value.hide();
+    editingCell.value = null;
+    openRowEditor(section, rowIdx);
+};
+
+const saveRowEdit = () => {
+    const f = editRowForm.value;
+    const { section, rowIdx } = editRowDialog.value;
+    if (!f.label?.trim()) return;
+    if (f.isRecurring && f.endMonth < f.startMonth) return;
+
+    const row = rowFor(section, rowIdx);
+    row.label = f.label.trim();
+    if (section === 'expenses') row.categoryId = f.categoryId;
+    row.hasIva = f.hasIva;
+    if (section === 'incomes') row.hasIrpf = f.hasIrpf;
+    row.isRecurring = f.isRecurring;
+    row.recurrenceInterval = f.isRecurring ? f.interval : null;
+    row.recurrenceStartMonth = f.isRecurring ? f.startMonth + 1 : null;
+    row.recurrenceEndMonth = f.isRecurring ? f.endMonth + 1 : null;
+
+    const patternChanged = JSON.stringify(recurrencePatternOf(f)) !== editRowInitialPattern;
+    if (f.isRecurring && f.amount && patternChanged) {
+        for (let m = 0; m < 12; m++) {
+            if (!monthIsFuture(m)) continue;
+            const inPattern = m >= f.startMonth && m <= f.endMonth && (m - f.startMonth) % f.interval === 0;
+            row.monthly[m] = inPattern ? f.amount : 0;
+        }
+    }
+    editRowDialog.value.visible = false;
+};
+
 const flash = computed(() => page.props.flash);
 
 /* ---------------------------------------------------------------
@@ -714,13 +833,13 @@ const saveCapital = () => {
                 <table class="min-w-full text-sm">
                     <thead>
                         <tr class="border-b border-surface-200 bg-surface-50">
-                            <th class="sticky left-0 top-0 z-30 min-w-[240px] bg-surface-50 px-4 py-3 text-left font-semibold text-surface-700 shadow-[inset_0_-1px_0_#e2e8f0]">Concepto</th>
+                            <th class="sticky left-0 top-0 z-30 min-w-[240px] bg-white px-4 py-3 text-left font-semibold text-surface-700 shadow-[inset_0_-1px_0_#e2e8f0]">Concepto</th>
                             <th
                                 v-for="(m, i) in months"
                                 :key="m"
                                 class="sticky top-0 z-20 min-w-[110px] px-2 py-3 text-right font-semibold uppercase tracking-wider shadow-[inset_0_-1px_0_#e2e8f0]"
                                 :class="[
-                                    isCurrentMonth(i) ? 'bg-sky-100 text-sky-800' : quarterCols.includes(i) ? 'bg-emerald-50 text-surface-500' : 'bg-surface-50 text-surface-500',
+                                    isCurrentMonth(i) ? 'bg-sky-100 text-sky-800' : quarterCols.includes(i) ? 'bg-emerald-50 text-surface-500' : 'bg-white text-surface-500',
                                 ]"
                             >
                                 <span class="inline-flex items-center gap-1.5">
@@ -748,44 +867,70 @@ const saveCapital = () => {
                                 </div>
                             </td>
                         </tr>
-                        <tr v-for="(line, rowIdx) in incomesState" :key="'inc-' + rowIdx" class="border-b border-surface-100 hover:bg-emerald-50/20">
-                            <td class="group/row sticky left-0 z-10 bg-white px-4 py-2 font-medium text-surface-800">
-                                <div class="flex items-center justify-between">
-                                    <InputText v-if="isEditingRow('incomes', rowIdx)" ref="rowNameInput" v-model="tempRowName" size="small" @blur="saveRowName" @keydown.enter="saveRowName" @keydown.esc="editingRowName = null" />
-                                    <button v-else type="button" class="flex-1 text-left hover:text-emerald-700" @click="startRowNameEdit('incomes', rowIdx)">
-                                        {{ line.label }}
-                                        <span
-                                            v-if="!line.hasIva"
-                                            v-tooltip="'Sin IVA — no entra en Modelo 303'"
-                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
-                                        >sin IVA</span>
-                                        <span
-                                            v-if="!line.hasIrpf"
-                                            v-tooltip="'Sin retención IRPF — no descuenta de Modelo 130'"
-                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
-                                        >sin IRPF</span>
-                                    </button>
-                                    <button v-if="!isEditingRow('incomes', rowIdx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'incomes', rowIdx)">
-                                        <i class="pi pi-trash text-xs" />
-                                    </button>
+                        <tr
+                            v-if="incomeGroups.recurring.length"
+                            class="cursor-pointer select-none border-b border-emerald-100 bg-emerald-50/50"
+                            @click="recurringCollapsed.incomes = !recurringCollapsed.incomes"
+                        >
+                            <td class="sticky left-0 z-10 bg-emerald-50 px-4 py-2">
+                                <div class="flex items-center gap-2">
+                                    <i class="pi text-[10px] text-emerald-700" :class="recurringCollapsed.incomes ? 'pi-plus' : 'pi-minus'" />
+                                    <span class="text-xs font-bold uppercase tracking-wider text-emerald-700">Recurrentes</span>
+                                    <span class="rounded-full bg-emerald-100 px-1.5 py-px text-[10px] font-semibold tabular-nums text-emerald-700">{{ incomeGroups.recurring.length }}</span>
                                 </div>
                             </td>
-                            <td
-                                v-for="(v, monthIdx) in line.monthly"
-                                :key="monthIdx"
-                                class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-emerald-100/40"
-                                :class="[
-                                    !v ? 'text-surface-300' : '',
-                                    isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-emerald-50/30' : '',
-                                    isDragHighlighted('incomes', rowIdx, monthIdx) ? 'bg-emerald-200/50 ring-1 ring-inset ring-emerald-400' : '',
-                                ]"
-                                @click="openCellEditor($event, 'incomes', rowIdx, monthIdx)"
-                                @mouseenter="onCellEnter('incomes', rowIdx, monthIdx)"
-                            >
-                                <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
-                                <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-emerald-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'incomes', rowIdx, monthIdx)" @click.stop />
+                            <td v-for="(t, i) in recurringTotals('incomes')" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-emerald-700">
+                                {{ recurringCollapsed.incomes ? formatCompact(t) : '' }}
                             </td>
                         </tr>
+                        <template v-for="item in sectionRows('incomes')" :key="item.type === 'row' ? 'inc-' + item.idx : 'inc-divider'">
+                            <tr v-if="item.type === 'divider'" class="border-b border-surface-100 bg-surface-50/60">
+                                <td class="sticky left-0 z-10 bg-white px-4 py-1.5" :colspan="13">
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-surface-400">{{ item.label }}</span>
+                                </td>
+                            </tr>
+                            <tr v-else class="border-b border-surface-100 hover:bg-emerald-50/20">
+                                <td class="group/row sticky left-0 z-10 bg-white px-4 py-2 font-medium text-surface-800">
+                                    <div class="flex items-center justify-between">
+                                        <InputText v-if="isEditingRow('incomes', item.idx)" ref="rowNameInput" v-model="tempRowName" size="small" @blur="saveRowName" @keydown.enter="saveRowName" @keydown.esc="editingRowName = null" />
+                                        <button v-else type="button" class="flex-1 text-left hover:text-emerald-700" @click="startRowNameEdit('incomes', item.idx)">
+                                            {{ item.line.label }}
+                                            <span
+                                                v-if="!item.line.hasIva"
+                                                v-tooltip="'Sin IVA — no entra en Modelo 303'"
+                                                class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                            >sin IVA</span>
+                                            <span
+                                                v-if="!item.line.hasIrpf"
+                                                v-tooltip="'Sin retención IRPF — no descuenta de Modelo 130'"
+                                                class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                            >sin IRPF</span>
+                                        </button>
+                                        <button v-if="!isEditingRow('incomes', item.idx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-emerald-50 hover:text-emerald-700 group-hover/row:opacity-100" v-tooltip.left="'Editar cliente'" @click="openRowEditor('incomes', item.idx)">
+                                            <i class="pi pi-pencil text-xs" />
+                                        </button>
+                                        <button v-if="!isEditingRow('incomes', item.idx)" type="button" class="ml-1 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'incomes', item.idx)">
+                                            <i class="pi pi-trash text-xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                                <td
+                                    v-for="(v, monthIdx) in item.line.monthly"
+                                    :key="monthIdx"
+                                    class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-emerald-100/40"
+                                    :class="[
+                                        !v ? 'text-surface-300' : '',
+                                        isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-emerald-50/30' : '',
+                                        isDragHighlighted('incomes', item.idx, monthIdx) ? 'bg-emerald-200/50 ring-1 ring-inset ring-emerald-400' : '',
+                                    ]"
+                                    @click="openCellEditor($event, 'incomes', item.idx, monthIdx)"
+                                    @mouseenter="onCellEnter('incomes', item.idx, monthIdx)"
+                                >
+                                    <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
+                                    <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-emerald-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'incomes', item.idx, monthIdx)" @click.stop />
+                                </td>
+                            </tr>
+                        </template>
                         <tr class="border-b-2 border-emerald-200 bg-emerald-100/40">
                             <td class="sticky left-0 z-10 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Total previsto</td>
                             <td v-for="(v, i) in incomesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-emerald-800">{{ formatCompact(v) }}</td>
@@ -807,40 +952,66 @@ const saveCapital = () => {
                                 </div>
                             </td>
                         </tr>
-                        <tr v-for="(line, rowIdx) in expensesState" :key="'exp-' + rowIdx" class="border-b border-surface-100 hover:bg-red-50/20">
-                            <td class="group/row sticky left-0 z-10 bg-white px-4 py-2 text-surface-800">
-                                <div class="flex items-center justify-between">
-                                    <InputText v-if="isEditingRow('expenses', rowIdx)" ref="rowNameInput" v-model="tempRowName" size="small" @blur="saveRowName" @keydown.enter="saveRowName" @keydown.esc="editingRowName = null" />
-                                    <button v-else type="button" class="flex-1 text-left hover:text-red-700" @click="startRowNameEdit('expenses', rowIdx)">
-                                        <span class="font-medium">{{ line.label }}</span>
-                                        <span v-if="categoryName(line.categoryId)" class="ml-1 text-xs text-surface-400">· {{ categoryName(line.categoryId) }}</span>
-                                        <span
-                                            v-if="!line.hasIva"
-                                            v-tooltip="'Sin IVA — no entra en Modelo 303'"
-                                            class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
-                                        >sin IVA</span>
-                                    </button>
-                                    <button v-if="!isEditingRow('expenses', rowIdx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'expenses', rowIdx)">
-                                        <i class="pi pi-trash text-xs" />
-                                    </button>
+                        <tr
+                            v-if="expenseGroups.recurring.length"
+                            class="cursor-pointer select-none border-b border-red-100 bg-red-50/50"
+                            @click="recurringCollapsed.expenses = !recurringCollapsed.expenses"
+                        >
+                            <td class="sticky left-0 z-10 bg-red-50 px-4 py-2">
+                                <div class="flex items-center gap-2">
+                                    <i class="pi text-[10px] text-red-700" :class="recurringCollapsed.expenses ? 'pi-plus' : 'pi-minus'" />
+                                    <span class="text-xs font-bold uppercase tracking-wider text-red-700">Recurrentes</span>
+                                    <span class="rounded-full bg-red-100 px-1.5 py-px text-[10px] font-semibold tabular-nums text-red-700">{{ expenseGroups.recurring.length }}</span>
                                 </div>
                             </td>
-                            <td
-                                v-for="(v, monthIdx) in line.monthly"
-                                :key="monthIdx"
-                                class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-red-100/40"
-                                :class="[
-                                    !v ? 'text-surface-300' : '',
-                                    isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-red-50/30' : '',
-                                    isDragHighlighted('expenses', rowIdx, monthIdx) ? 'bg-red-200/50 ring-1 ring-inset ring-red-400' : '',
-                                ]"
-                                @click="openCellEditor($event, 'expenses', rowIdx, monthIdx)"
-                                @mouseenter="onCellEnter('expenses', rowIdx, monthIdx)"
-                            >
-                                <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
-                                <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-red-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'expenses', rowIdx, monthIdx)" @click.stop />
+                            <td v-for="(t, i) in recurringTotals('expenses')" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-red-700">
+                                {{ recurringCollapsed.expenses ? formatCompact(t) : '' }}
                             </td>
                         </tr>
+                        <template v-for="item in sectionRows('expenses')" :key="item.type === 'row' ? 'exp-' + item.idx : 'exp-divider'">
+                            <tr v-if="item.type === 'divider'" class="border-b border-surface-100 bg-surface-50/60">
+                                <td class="sticky left-0 z-10 bg-white px-4 py-1.5" :colspan="13">
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-surface-400">{{ item.label }}</span>
+                                </td>
+                            </tr>
+                            <tr v-else class="border-b border-surface-100 hover:bg-red-50/20">
+                                <td class="group/row sticky left-0 z-10 bg-white px-4 py-2 text-surface-800">
+                                    <div class="flex items-center justify-between">
+                                        <InputText v-if="isEditingRow('expenses', item.idx)" ref="rowNameInput" v-model="tempRowName" size="small" @blur="saveRowName" @keydown.enter="saveRowName" @keydown.esc="editingRowName = null" />
+                                        <button v-else type="button" class="flex-1 text-left hover:text-red-700" @click="startRowNameEdit('expenses', item.idx)">
+                                            <span class="font-medium">{{ item.line.label }}</span>
+                                            <span v-if="categoryName(item.line.categoryId)" class="ml-1 text-xs text-surface-400">· {{ categoryName(item.line.categoryId) }}</span>
+                                            <span
+                                                v-if="!item.line.hasIva"
+                                                v-tooltip="'Sin IVA — no entra en Modelo 303'"
+                                                class="ml-1.5 inline-flex items-center rounded bg-surface-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-surface-500"
+                                            >sin IVA</span>
+                                        </button>
+                                        <button v-if="!isEditingRow('expenses', item.idx)" type="button" class="ml-2 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-700 group-hover/row:opacity-100" v-tooltip.left="'Editar gasto'" @click="openRowEditor('expenses', item.idx)">
+                                            <i class="pi pi-pencil text-xs" />
+                                        </button>
+                                        <button v-if="!isEditingRow('expenses', item.idx)" type="button" class="ml-1 rounded p-1 text-surface-400 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100" v-tooltip.left="'Eliminar línea'" @click="confirmDeleteRow($event, 'expenses', item.idx)">
+                                            <i class="pi pi-trash text-xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                                <td
+                                    v-for="(v, monthIdx) in item.line.monthly"
+                                    :key="monthIdx"
+                                    class="group relative cursor-pointer px-2 py-2 text-right tabular-nums transition-colors hover:bg-red-100/40"
+                                    :class="[
+                                        !v ? 'text-surface-300' : '',
+                                        isCurrentMonth(monthIdx) ? 'bg-sky-50/50' : quarterCols.includes(monthIdx) ? 'bg-red-50/30' : '',
+                                        isDragHighlighted('expenses', item.idx, monthIdx) ? 'bg-red-200/50 ring-1 ring-inset ring-red-400' : '',
+                                    ]"
+                                    @click="openCellEditor($event, 'expenses', item.idx, monthIdx)"
+                                    @mouseenter="onCellEnter('expenses', item.idx, monthIdx)"
+                                >
+                                    <span class="inline-flex items-center gap-1">{{ formatCompact(v) }}</span>
+                                    <span v-if="v" class="fill-handle absolute bottom-0.5 right-0.5 h-2 w-2 cursor-crosshair rounded-sm bg-red-600 opacity-0 transition-opacity group-hover:opacity-100" @mousedown="startDrag($event, 'expenses', item.idx, monthIdx)" @click.stop />
+                                </td>
+                            </tr>
+                        </template>
                         <tr class="border-b-2 border-red-200 bg-red-100/40">
                             <td class="sticky left-0 z-10 bg-red-100 px-4 py-2 font-semibold text-red-800">Total previsto</td>
                             <td v-for="(v, i) in expensesByMonth" :key="i" class="px-2 py-2 text-right font-semibold tabular-nums text-red-800">{{ formatCompact(v) }}</td>
@@ -997,6 +1168,16 @@ const saveCapital = () => {
                     <Button v-if="editingCell?.rowIdx !== null && cellForm.amount" type="button" icon="pi pi-trash" severity="secondary" text size="small" v-tooltip="'Vaciar celda'" @click="clearCell" />
                     <Button label="Guardar" size="small" fluid @click="saveCellEdit" />
                 </div>
+
+                <button
+                    v-if="editingCell && editingCell.section !== 'salary'"
+                    type="button"
+                    class="flex items-center justify-center gap-1.5 rounded-lg border border-surface-200 px-2 py-1.5 text-xs font-medium text-surface-600 transition-colors hover:border-violet-400 hover:bg-violet-50 hover:text-violet-700"
+                    @click="editRowFromCell"
+                >
+                    <i class="pi pi-pencil text-[10px]" />
+                    {{ editingCell.section === 'incomes' ? 'Editar ficha del cliente' : 'Editar ficha del gasto' }}
+                </button>
             </div>
         </Popover>
 
@@ -1087,6 +1268,98 @@ const saveCapital = () => {
                 <div class="mt-2 flex gap-2">
                     <Button type="button" label="Cancelar" severity="secondary" outlined fluid @click="drawerOpen = false" />
                     <Button type="submit" label="Añadir" fluid />
+                </div>
+            </form>
+        </Dialog>
+
+        <!-- Modal: editar ficha (FT-1041) -->
+        <Dialog
+            v-model:visible="editRowDialog.visible"
+            modal
+            :style="{ width: '460px' }"
+            :pt="{ root: { class: '!rounded-2xl !overflow-hidden' } }"
+            :dismissableMask="true"
+        >
+            <template #header>
+                <span class="text-lg font-semibold">
+                    {{ editRowDialog.section === 'incomes' ? 'Editar cliente' : 'Editar gasto' }}
+                </span>
+            </template>
+
+            <form v-if="editRowForm" class="flex flex-col gap-5" @submit.prevent="saveRowEdit">
+                <div class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-surface-700">
+                        {{ editRowDialog.section === 'incomes' ? 'Cliente' : 'Nombre del gasto' }}
+                    </label>
+                    <InputText v-model="editRowForm.label" fluid />
+                </div>
+
+                <div v-if="editRowDialog.section === 'expenses'" class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-surface-700">Categoría</label>
+                    <CategorySelect v-model="editRowForm.categoryId" :options="expenseCategories" type="expense" @created="addCategoryFromCreate" />
+                </div>
+
+                <div class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">Recurrente</p>
+                        <p class="text-xs text-surface-500">Se repite automáticamente según el intervalo elegido.</p>
+                    </div>
+                    <ToggleSwitch v-model="editRowForm.isRecurring" />
+                </div>
+
+                <template v-if="editRowForm.isRecurring">
+                    <div class="flex flex-col gap-2">
+                        <label class="text-sm font-medium text-surface-700">Intervalo</label>
+                        <Select v-model="editRowForm.interval" :options="editIntervalOptions" optionLabel="label" optionValue="value" fluid />
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="flex flex-col gap-2">
+                            <label class="text-sm font-medium text-surface-700">Mes de inicio</label>
+                            <Select v-model="editRowForm.startMonth" :options="monthOptions" optionLabel="label" optionValue="value" fluid />
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <label class="text-sm font-medium text-surface-700">Mes de fin</label>
+                            <Select v-model="editRowForm.endMonth" :options="monthOptions" optionLabel="label" optionValue="value" fluid />
+                        </div>
+                    </div>
+                    <p v-if="editRowForm.endMonth < editRowForm.startMonth" class="text-xs text-red-600">
+                        El mes de fin debe ser posterior al mes de inicio.
+                    </p>
+                    <div class="flex flex-col gap-2">
+                        <label class="text-sm font-medium text-surface-700">Importe (€)</label>
+                        <InputNumber v-model="editRowForm.amount" :minFractionDigits="0" :maxFractionDigits="2" locale="es-ES" suffix=" €" fluid />
+                    </div>
+                </template>
+
+                <div class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">Con IVA</p>
+                        <p class="text-xs text-surface-500">
+                            {{ editRowDialog.section === 'incomes'
+                                ? 'Desactivar si facturas sin IVA (ej: cliente UE intracomunitario).'
+                                : 'Desactivar si el proveedor no aplica IVA.' }}
+                        </p>
+                    </div>
+                    <ToggleSwitch v-model="editRowForm.hasIva" />
+                </div>
+
+                <div v-if="editRowDialog.section === 'incomes'" class="flex items-center justify-between rounded-lg border border-surface-200 p-3">
+                    <div>
+                        <p class="text-sm font-medium text-surface-700">Con IRPF retenido</p>
+                        <p class="text-xs text-surface-500">
+                            Desactivar para facturas B2C, UE o exentas (sin retención del 15 %).
+                        </p>
+                    </div>
+                    <ToggleSwitch v-model="editRowForm.hasIrpf" />
+                </div>
+
+                <p class="text-xs text-surface-400">
+                    Los cambios de recurrencia e importe solo se aplican a los meses futuros; los meses pasados no se modifican.
+                </p>
+
+                <div class="mt-2 flex gap-2">
+                    <Button type="button" label="Cancelar" severity="secondary" outlined fluid @click="editRowDialog.visible = false" />
+                    <Button type="submit" label="Guardar" fluid />
                 </div>
             </form>
         </Dialog>

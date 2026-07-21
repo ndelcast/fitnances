@@ -17,6 +17,10 @@ class CashFlowRow extends Model
         'category_id',
         'has_iva',
         'has_irpf',
+        'is_recurring',
+        'recurrence_interval',
+        'recurrence_start_month',
+        'recurrence_end_month',
         'sort_order',
     ];
 
@@ -26,6 +30,10 @@ class CashFlowRow extends Model
             'kind' => CashFlowRowKind::class,
             'has_iva' => 'boolean',
             'has_irpf' => 'boolean',
+            'is_recurring' => 'boolean',
+            'recurrence_interval' => 'integer',
+            'recurrence_start_month' => 'integer',
+            'recurrence_end_month' => 'integer',
             'sort_order' => 'integer',
         ];
     }

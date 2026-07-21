@@ -46,8 +46,8 @@ final class CashFlowPlanService
      * @param  array{
      *   startingBalance?: float|int,
      *   irpfExempt?: bool,
-     *   incomes?: array<int, array{id?:int|null,label:string,clientName?:string|null,categoryId?:int|null,hasIva?:bool,hasIrpf?:bool,monthly:array<int,float>}>,
-     *   expenses?: array<int, array{id?:int|null,label:string,categoryId?:int|null,hasIva?:bool,monthly:array<int,float>}>,
+     *   incomes?: array<int, array{id?:int|null,label:string,clientName?:string|null,categoryId?:int|null,hasIva?:bool,hasIrpf?:bool,isRecurring?:bool,recurrenceInterval?:int|null,recurrenceStartMonth?:int|null,recurrenceEndMonth?:int|null,monthly:array<int,float>}>,
+     *   expenses?: array<int, array{id?:int|null,label:string,categoryId?:int|null,hasIva?:bool,isRecurring?:bool,recurrenceInterval?:int|null,recurrenceStartMonth?:int|null,recurrenceEndMonth?:int|null,monthly:array<int,float>}>,
      *   salary?: array{id?:int|null,label?:string,monthly:array<int,float>}
      * }  $payload
      */
@@ -92,6 +92,7 @@ final class CashFlowPlanService
             'has_iva' => $kind === CashFlowRowKind::Salary ? false : ($rowData['hasIva'] ?? true),
             'has_irpf' => $kind === CashFlowRowKind::Income ? ($rowData['hasIrpf'] ?? true) : false,
             'sort_order' => $sortOrder,
+            ...$this->recurrenceAttrs($rowData),
         ];
 
         $existingId = $rowData['id'] ?? null;
@@ -158,6 +159,24 @@ final class CashFlowPlanService
         }
 
         return $row->id;
+    }
+
+    /**
+     * Recurrence config d'une row (mois en 1-12). Les champs d'intervalle
+     * ne sont conservés que si la row est récurrente.
+     *
+     * @return array{is_recurring:bool,recurrence_interval:int|null,recurrence_start_month:int|null,recurrence_end_month:int|null}
+     */
+    private function recurrenceAttrs(array $rowData): array
+    {
+        $isRecurring = (bool) ($rowData['isRecurring'] ?? false);
+
+        return [
+            'is_recurring' => $isRecurring,
+            'recurrence_interval' => $isRecurring ? ($rowData['recurrenceInterval'] ?? 1) : null,
+            'recurrence_start_month' => $isRecurring ? ($rowData['recurrenceStartMonth'] ?? 1) : null,
+            'recurrence_end_month' => $isRecurring ? ($rowData['recurrenceEndMonth'] ?? 12) : null,
+        ];
     }
 
     private function seedDefaults(User $user, CashFlowPlan $plan): void

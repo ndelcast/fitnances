@@ -675,13 +675,13 @@ const saveCapital = () => {
                 <table class="min-w-full text-sm">
                     <thead>
                         <tr class="border-b border-surface-200 bg-surface-50">
-                            <th class="sticky left-0 top-0 z-30 min-w-[240px] bg-surface-50 px-4 py-3 text-left font-semibold text-surface-700 shadow-[inset_0_-1px_0_#e2e8f0]">Concepto</th>
+                            <th class="sticky left-0 top-0 z-30 min-w-[240px] bg-white px-4 py-3 text-left font-semibold text-surface-700 shadow-[inset_0_-1px_0_#e2e8f0]">Concepto</th>
                             <th
                                 v-for="(m, i) in months"
                                 :key="m"
                                 class="sticky top-0 z-20 min-w-[110px] px-2 py-3 text-right font-semibold uppercase tracking-wider shadow-[inset_0_-1px_0_#e2e8f0]"
                                 :class="[
-                                    isCurrentMonth(i) ? 'bg-sky-100 text-sky-800' : quarterCols.includes(i) ? 'bg-emerald-50 text-surface-500' : 'bg-surface-50 text-surface-500',
+                                    isCurrentMonth(i) ? 'bg-sky-100 text-sky-800' : quarterCols.includes(i) ? 'bg-emerald-50 text-surface-500' : 'bg-white text-surface-500',
                                 ]"
                             >
                                 <span class="inline-flex items-center gap-1.5">

@@ -885,7 +885,7 @@ const saveCapital = () => {
                         </tr>
                         <template v-for="item in sectionRows('incomes')" :key="item.type === 'row' ? 'inc-' + item.idx : 'inc-divider'">
                             <tr v-if="item.type === 'divider'" class="border-b border-surface-100 bg-surface-50/60">
-                                <td class="sticky left-0 z-10 bg-surface-50 px-4 py-1.5" :colspan="13">
+                                <td class="sticky left-0 z-10 bg-white px-4 py-1.5" :colspan="13">
                                     <span class="text-[10px] font-bold uppercase tracking-wider text-surface-400">{{ item.label }}</span>
                                 </td>
                             </tr>
@@ -970,7 +970,7 @@ const saveCapital = () => {
                         </tr>
                         <template v-for="item in sectionRows('expenses')" :key="item.type === 'row' ? 'exp-' + item.idx : 'exp-divider'">
                             <tr v-if="item.type === 'divider'" class="border-b border-surface-100 bg-surface-50/60">
-                                <td class="sticky left-0 z-10 bg-surface-50 px-4 py-1.5" :colspan="13">
+                                <td class="sticky left-0 z-10 bg-white px-4 py-1.5" :colspan="13">
                                     <span class="text-[10px] font-bold uppercase tracking-wider text-surface-400">{{ item.label }}</span>
                                 </td>
                             </tr>
